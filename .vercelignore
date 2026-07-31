@@ -1,0 +1,7 @@
+# Kept in the repo for portability to Cloudflare Pages, but Vercel would serve
+# it as a readable static file, so exclude it from Vercel deployments.
+functions/
+
+# Dev-only / never needed at runtime
+README.md
+.claude/
