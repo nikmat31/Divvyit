@@ -1,135 +1,167 @@
-# 🍽️ Divvy — food bill splitter
+<div align="center">
 
-Scan any food bill (photo, screenshot, or pasted text), tag who ate what, and get each person's total — including a fair share of tax, tip and service. Everything runs in the browser: no accounts, no server, no upload. Your bill never leaves your device.
+<img src="icon.svg" width="88" height="88" alt="Divvy">
 
-## Run it locally
+# Divvy
 
-The app is plain ES modules with **no build step**, but it must be served over HTTP (opening `index.html` via `file://` won't work, because browsers block module loading there).
+**Split any food bill, dish by dish.**
 
-```bash
-cd "New App" && python3 -m http.server 8777
-```
+Scan a bill, tag who ate what, and get exactly what each person owes —
+including a fair share of tax, tip and service.
 
-Then open **http://localhost:8777/**.
+### 🍽️ [Open Divvy](https://divvyit.vercel.app)
 
-To test from your phone on the same Wi-Fi, use your Mac's IP: `http://<your-ip>:8777/`.
+</div>
 
-## Two ways it reads a bill
+---
 
-1. **AI vision (best)** — the image goes to `/api/parse-bill`, a small serverless function that calls **Google Gemini** and returns structured line items. Reads crumpled, angled, low-contrast receipts that OCR can't, and also picks up the restaurant name, date and printed total.
-2. **On-device OCR (fallback)** — Tesseract.js in the browser. Used automatically whenever the AI endpoint is missing, unreachable, or rate-limited. Nothing leaves the device on this path.
+## What it does
 
-The app always tries AI first and falls back silently, so it works before you deploy the function — just less accurately.
+Splitting a restaurant bill fairly is annoying: someone had two beers, three people
+shared the naan, and the tax needs spreading over all of it. Divvy does the
+bookkeeping.
 
-## Deploy (no Node needed)
+1. **Add the bill.** Photograph it, paste a screenshot, paste the text, or type
+   dishes in by hand. Every parsed row stays editable.
+2. **Add the people.** Just first names.
+3. **Tag who had what.** Tap a name under a dish. Use **−/+** for uneven splits —
+   a plate of three where one person had two and another had one.
+4. **Read off the totals.** Tax, tip and service are spread in proportion to what
+   each person actually ate, and totals update as you type.
+5. **Share it.** A receipt-style card with everyone's amount, ready for the group chat.
 
-### Vercel — recommended
+Nothing to install, no account, no sign-up.
 
-Files in `api/` automatically become endpoints, so there's nothing to configure.
+## What makes it accurate
 
-1. Push this folder to a GitHub repo.
-2. On [vercel.com](https://vercel.com) → **Add New → Project** → import the repo. Framework preset: **Other**. No build command.
-3. **Settings → Environment Variables** → add `GEMINI_API_KEY` (get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
-4. Redeploy. Done.
+Bill splitting is only useful if the numbers are right, so most of the work is in
+getting them right and in **telling you when they might not be**.
 
-Optional env vars: `GEMINI_MODEL` (defaults to `gemini-flash-latest`), `ALLOWED_ORIGINS` (comma-separated origins allowed to call the proxy cross-origin; same-origin always works).
+**It checks its own arithmetic.** Divvy reads the total printed on the bill and
+compares it against the sum of what it extracted. Agreement gets a green ✓;
+disagreement gets a loud warning naming the exact gap. A visible mismatch beats a
+silently wrong split.
 
-> Vercel's free Hobby tier is **non-commercial**. If Divvy ever makes money, move to Pro or use Cloudflare.
+**It understands bill layouts.** Restaurant bills usually print `Qty | Rate |
+Amount`. Divvy validates that `qty × rate == amount` before trusting a row — far
+more robust than grabbing the right-most number — and carries the quantity through
+(`CHEESE PAKODA ×4`) so you know how many portions to divide.
 
-### Cloudflare Pages — if you'd rather not use Git
+**It sums every tax line.** An Indian bill listing SGST *and* CGST *and* VAT adds
+up correctly instead of capturing only the first.
 
-Supports dashboard **Direct Upload**, so you can drag the folder in with no repo and no CLI.
+**Its money parsing is locale-aware.** `1,250` is twelve hundred and fifty, not
+one-point-two-five. `1,234.56` and `1.234,56` both work. Percentage rates like
+`CGST 2.5%` aren't mistaken for amounts.
 
-1. Workers & Pages → Create → Pages → **Upload assets** → upload this folder.
-2. Settings → **Variables and secrets** → add `GEMINI_API_KEY` as a secret.
-3. The adapter at `functions/api/parse-bill.js` is picked up automatically.
+**Shared amounts are whole numbers that still add up.** Per-person totals are
+rounded to whole units using largest-remainder rounding, so the split always sums
+to exactly the bill total — no lingering one-rupee discrepancy.
 
-### Netlify
+## Reading the bill
 
-Add a `netlify/functions/parse-bill.mjs` containing:
+Two engines, and it picks the best available automatically.
 
-```js
-import { handleParseBill } from "../../api/_bill-core.js";
-export default (req) => handleParseBill(req, process.env);
-export const config = { path: "/api/parse-bill" };
-```
+**AI vision** — the image goes to a small server-side function that calls Google
+Gemini and returns structured line items. This handles the hard cases: crumpled
+thermal receipts, angled photos, faded print, poor lighting. It also reads the
+restaurant name and the printed total off the bill.
 
-Then set `GEMINI_API_KEY` in Site configuration → Environment variables.
+**On-device OCR** — Tesseract.js running entirely in your browser, used
+automatically whenever the AI service is unavailable or busy. Before recognition,
+each image is oriented from its EXIF data, **auto-cropped to the receipt** (so the
+table underneath isn't read as text), rescaled so characters land in a legible
+range, inverted if it's a dark-mode screenshot, and passed through an adaptive
+local threshold that copes with uneven lighting. If the first pass finds nothing, it
+retries with different settings and orientations.
 
-### Verify your key before deploying
+Between them: **JPEG, PNG, WebP, GIF, BMP, AVIF, HEIC/HEIF**. Drag an image in, paste
+one with ⌘V, or pick several at once. Non-Latin dish names (Devanagari, Tamil, CJK)
+are preserved.
 
-```bash
-curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY" | head -40
-```
-
-If that lists models, the key works. Model versions get retired — if a call fails with "no longer available", set `GEMINI_MODEL` to a current model from that list.
-
-**HTTPS is required** for the camera, clipboard and native share sheet — all three hosts provide it automatically.
+> **For best results**, shoot the bill flat, straight-on and well lit, filling the
+> frame. For emailed or PDF bills, pasting the text is more accurate than any scan.
 
 ## Privacy
 
-On the OCR path nothing leaves your device. On the AI path the **bill image is sent to Google**; on the Gemini free tier Google may use submitted data to improve their products. If that matters for your bills, either don't deploy the function (OCR-only still works) or use a paid tier with data-use guarantees.
+- Your bills, people and splits are stored **only in your browser** (`localStorage`).
+  There's no account, no database and no server-side copy.
+- On the **OCR** path, the image never leaves your device.
+- On the **AI** path, the image is sent to Google's Gemini API to be read. If you'd
+  rather nothing left your device, self-host without the AI function — the app works
+  fully on OCR alone.
 
-## How to use
+## Self-hosting
 
-1. **Who's here** — add each person by name.
-2. **Add the bill** — scan a photo, drag an image in, paste one with ⌘V, paste the receipt text, or add dishes manually. Parsed rows are always editable.
-3. **Assign** — tap a name under each dish to add their share. Use the **−/+** steppers for uneven splits, e.g. a plate of 3 where one person had 2 and another had 1. A dish left untagged is shared equally by everyone.
-4. **Tax, tip & extras** — auto-filled when detected; edit freely. Split in proportion to what each person ate.
-5. **Each person owes** — live totals that reconcile to the grand total.
-6. **Currency** — selector top-right (defaults to **₹ INR**).
-7. **Share the split** — a receipt-style card with everyone's rounded amount and a **PAID · NOW PAY UP** stamp. Set a restaurant name and date, then Share (native share sheet), Copy text (WhatsApp-ready) or Save image (PNG).
+Static files plus one serverless function. **No build step, no bundler, no
+dependencies to install** — the browser loads the source directly as ES modules.
 
-## Accuracy & the reconciliation check
+### Run locally
 
-Divvy reads the **Total** printed on the bill and compares it with its own arithmetic. If they disagree by more than 1% you get a loud warning naming the gap; if they agree you get a green ✓. This is the safety net — on-device OCR will sometimes misread a digit, and a visible mismatch beats a silently wrong split.
-
-Bills that print `Qty | Rate | Amount` are parsed structurally: when `qty × rate == amount` all three are trusted, which is far more robust than reading the right-most number. The quantity is carried into the dish name (`CHEESE PAKODA ×4`) so you know how many to divide.
-
-Multiple tax lines are **summed**, not overwritten — an Indian bill with SGST + CGST + VAT adds up correctly.
-
-**Real-world expectation:** a flat, well-lit, straight-on photo parses well. A crumpled, stained or faded thermal receipt shot at an angle will recover most item *names* but misread some *amounts* — the mismatch warning will tell you, and every row is editable. For those bills, pasting the text (from an emailed/PDF bill) is the accurate path.
-
-## Scanning: what works
-
-Decoding tries `createImageBitmap` first, then falls back to an `<img>` decode, so it reads **JPEG, PNG, WebP, GIF, BMP, AVIF, TIFF and HEIC/HEIF** wherever the browser has a decoder (HEIC works natively on Safari/iOS).
-
-Before OCR each image is oriented via EXIF, rescaled (big photos down, small ones up), converted to grayscale, **auto-inverted if it's a dark-mode screenshot**, and passed through a local adaptive threshold that handles uneven lighting and shadows. If the first pass finds no line items, a second gentler pass runs with different page segmentation.
-
-- **PDF bills** aren't decoded in-browser — screenshot the itemised section, or use "Or paste bill text" (which is more accurate than OCR anyway).
-- Non-Latin dish names (Devanagari, Tamil, CJK…) are preserved.
-- Money parsing handles `1,250` → 1250, `1,234.56`, and `1.234,56` correctly, and ignores rates like `CGST 2.5%`.
-
-## Project layout
-
-| File | Purpose |
-|------|---------|
-| `index.html` | Page shell, meta tags, module entry |
-| `src/main.js` | UI rendering, state, share sheet |
-| `src/split.js` | The splitting math (pure functions) |
-| `src/parser.js` | Text → line items + charges (pure functions) |
-| `src/ocr.js` | Image decoding, auto-crop, preprocessing, Tesseract |
-| `src/ai.js` | Client for the AI proxy, with graceful fallback |
-| `src/style.css` | All styles (light + dark) |
-| `api/_bill-core.js` | The Gemini call + response validation (platform-agnostic) |
-| `api/parse-bill.js` | Vercel endpoint (thin adapter) |
-| `functions/api/parse-bill.js` | Cloudflare Pages endpoint (thin adapter) |
-| `manifest.webmanifest`, `icon.svg` | Installability / home-screen icon |
-
-Tesseract.js is loaded from a CDN on first scan; everything else is local. The
-`_`-prefix on `_bill-core.js` keeps Vercel from exposing it as a route.
-
-To point a local copy at your deployed proxy while developing:
-
-```js
-localStorage.setItem("divvy.aiEndpoint", "https://your-app.vercel.app/api/parse-bill")
+```bash
+python3 -m http.server 8777
 ```
 
-(and add your local origin to `ALLOWED_ORIGINS` on the host).
+Open `http://localhost:8777`. It must be served over HTTP — opening `index.html`
+via `file://` won't work, because browsers block module loading there. The AI
+function won't exist locally, so scans use OCR.
 
-## Known gaps
+### Deploy
 
-- No offline support yet (no service worker), and the first OCR scan needs a connection to fetch the engine.
-- One bill at a time — there's no saved history.
-- **If you deploy this publicly, protect the proxy.** Anything fronting an API key should sit behind rate limiting and an access check — otherwise your provider quota is spendable by anyone who finds the endpoint. Treat the shipped validation (POST-only, mime-type check, size cap) as input hygiene, not access control.
-- No automated tests yet; `split.js` and `parser.js` are pure and would be easy to cover.
+Works on any host that serves static files and functions.
+
+| Host | Notes |
+|---|---|
+| **Vercel** | Import the repo, framework preset **Other**, no build command. `api/` becomes endpoints automatically. |
+| **Cloudflare Pages** | Dashboard **Direct Upload** works with no Git. The adapter in `functions/` is picked up automatically. |
+| **Netlify** | Add a 3-line adapter importing `api/_bill-core.js`. |
+
+Then set the environment variable:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` | for AI scanning | Free key from [Google AI Studio](https://aistudio.google.com/apikey). Server-side only — it is never sent to the browser. |
+| `GEMINI_MODEL` | no | Defaults to `gemini-flash-latest`. Pin a specific version if you want stable behaviour. |
+| `ALLOWED_ORIGINS` | no | Comma-separated extra origins permitted to call the proxy. Same-origin always works. |
+
+HTTPS is required for the camera, clipboard and native share sheet — all the hosts
+above provide it.
+
+> **Deploying publicly?** Anything fronting an API key belongs behind rate limiting
+> and an access check. The shipped validation (POST-only, mime-type check, size cap)
+> is input hygiene, not access control.
+
+## How it's built
+
+Vanilla JavaScript, no framework, no build tooling. The whole client is five ES
+modules; the logic that matters is in pure functions that are easy to reason about
+and test.
+
+| File | Purpose |
+|---|---|
+| `index.html` | Page shell and module entry |
+| `src/main.js` | UI rendering, state, share card |
+| `src/split.js` | The splitting maths — pure functions |
+| `src/parser.js` | Text → line items and charges — pure functions |
+| `src/ocr.js` | Image decode, auto-crop, preprocessing, Tesseract |
+| `src/ai.js` | AI client, with automatic fallback |
+| `src/style.css` | All styling, light and dark |
+| `api/_bill-core.js` | Gemini call and response validation |
+| `api/parse-bill.js` | Vercel endpoint |
+| `functions/api/parse-bill.js` | Cloudflare Pages endpoint |
+
+Tesseract.js loads from a CDN on first scan. Everything else is local. Installable
+to a phone home screen via the web manifest, and themed for light and dark.
+
+## Limitations
+
+- **Photo scans aren't perfect.** A badly degraded receipt will misread some
+  amounts. The reconciliation check will tell you, and every row is editable — but
+  check the numbers on a bad scan.
+- **PDFs aren't read directly.** Screenshot the itemised section, or paste the text.
+- **One bill at a time.** There's no saved history yet.
+- **No offline support yet** — the first OCR scan fetches the engine.
+
+## Licence
+
+[MIT](LICENSE) — do what you like with it.
