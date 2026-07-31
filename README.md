@@ -32,7 +32,7 @@ Files in `api/` automatically become endpoints, so there's nothing to configure.
 3. **Settings → Environment Variables** → add `GEMINI_API_KEY` (get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
 4. Redeploy. Done.
 
-Optional env vars: `GEMINI_MODEL` (defaults to `gemini-2.5-flash`), `ALLOWED_ORIGINS` (comma-separated origins allowed to call the proxy cross-origin; same-origin always works).
+Optional env vars: `GEMINI_MODEL` (defaults to `gemini-flash-latest`), `ALLOWED_ORIGINS` (comma-separated origins allowed to call the proxy cross-origin; same-origin always works).
 
 > Vercel's free Hobby tier is **non-commercial**. If Divvy ever makes money, move to Pro or use Cloudflare.
 
@@ -62,7 +62,7 @@ Then set `GEMINI_API_KEY` in Site configuration → Environment variables.
 curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY" | head -40
 ```
 
-If that lists models, the key works. If it 404s on `gemini-2.5-flash` later, set `GEMINI_MODEL` to a model name from that list.
+If that lists models, the key works. Model versions get retired — if a call fails with "no longer available", set `GEMINI_MODEL` to a current model from that list.
 
 **HTTPS is required** for the camera, clipboard and native share sheet — all three hosts provide it automatically.
 

@@ -4,7 +4,11 @@
 //
 // The API key NEVER reaches the browser — it lives in the platform's env vars.
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+// Alias that always resolves to Google's current Flash model. Deliberately not
+// pinned: Google retires specific versions (gemini-2.5-flash stopped accepting
+// new API keys), which hard-breaks a pinned default. Pin a version via the
+// GEMINI_MODEL env var if you need byte-stable behaviour.
+const DEFAULT_MODEL = "gemini-flash-latest";
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded; the client sends far less
 const ALLOWED_MIME = /^image\/(jpeg|png|webp|heic|heif)$/i;
 
@@ -193,16 +197,16 @@ export async function handleParseBill(request, env) {
   if (!res.ok) {
     const detail = payload?.error?.message || `HTTP ${res.status}`;
     const status = res.status === 429 ? 429 : 502;
-    return json(
-      {
-        error:
-          res.status === 429
-            ? "Free-tier rate limit hit — wait a moment and try again."
-            : `Model provider error: ${detail}`,
-      },
-      status,
-      origin,
-    );
+    let error;
+    if (res.status === 429) {
+      error = "Free-tier rate limit hit — wait a moment and try again.";
+    } else if (/no longer available|not found|not supported/i.test(detail)) {
+      // Google retires model versions; make the fix obvious rather than cryptic.
+      error = `Model "${model}" isn't usable with this API key. Set the GEMINI_MODEL environment variable to a current model. (${detail})`;
+    } else {
+      error = `Model provider error: ${detail}`;
+    }
+    return json({ error }, status, origin);
   }
 
   const text = payload?.candidates?.[0]?.content?.parts
