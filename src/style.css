@@ -1026,3 +1026,183 @@ body.dropping::after {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   RECEIPT SHELL
+   The bill itself is one continuous sheet of paper resting on a
+   café table, so the app and the image it shares look like the
+   same object. Sections are divided by dashed perforations
+   instead of floating cards.
+   ============================================================ */
+:root {
+  --paper: #fffdf6;
+  --paper-2: #f8f4e9;
+  --paper-3: #f0ebdd;
+  --paper-line: #d9d1bf;
+  --paper-ink: #1a1712;
+  --paper-ink-2: #4a443a;
+  --paper-muted: #8b8271;
+  --table-1: #e9e0d1;
+  --table-2: #ded3c1;
+  --table-glow: #f3ece0;
+  --grain-op: 0.42;
+  --grain-blend: multiply;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* torn-edge scallop size */
+  --z: 9px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #16191f;
+    --paper-2: #1b1f27;
+    --paper-3: #222732;
+    --paper-line: #333a47;
+    --paper-ink: #f0f2f7;
+    --paper-ink-2: #c6ccd8;
+    --paper-muted: #8b93a4;
+    --table-1: #0a0c11;
+    --table-2: #05070a;
+    --table-glow: #131722;
+    --grain-op: 0.3;
+    --grain-blend: overlay;
+  }
+}
+
+/* The table surface. No background-attachment:fixed — iOS Safari mis-sizes it. */
+body {
+  background:
+    radial-gradient(1200px 620px at 50% -180px, var(--table-glow), transparent 72%),
+    linear-gradient(160deg, var(--table-1), var(--table-2)) no-repeat;
+  background-size: 100% 100%, 100% 100%;
+}
+
+#app {
+  max-width: 720px;
+}
+
+/* The sheet of paper */
+.sheet {
+  position: relative;
+  background: var(--paper);
+  padding: 22px 20px 26px;
+  margin: 0 0 8px;
+  /* Torn top and bottom edges. A mask clips box-shadow, so the lift comes
+     from a drop-shadow filter, which follows the mask's alpha instead. */
+  -webkit-mask:
+    radial-gradient(circle var(--z) at 50% 0, #0000 97%, #000 100%) top center /
+      calc(var(--z) * 2.15) var(--z) repeat-x,
+    radial-gradient(circle var(--z) at 50% 100%, #0000 97%, #000 100%) bottom center /
+      calc(var(--z) * 2.15) var(--z) repeat-x,
+    linear-gradient(#000, #000) center / 100% calc(100% - var(--z) * 2) no-repeat;
+  mask:
+    radial-gradient(circle var(--z) at 50% 0, #0000 97%, #000 100%) top center /
+      calc(var(--z) * 2.15) var(--z) repeat-x,
+    radial-gradient(circle var(--z) at 50% 100%, #0000 97%, #000 100%) bottom center /
+      calc(var(--z) * 2.15) var(--z) repeat-x,
+    linear-gradient(#000, #000) center / 100% calc(100% - var(--z) * 2) no-repeat;
+  filter: drop-shadow(0 2px 3px rgba(60, 45, 20, 0.14))
+    drop-shadow(0 16px 34px rgba(60, 45, 20, 0.16));
+
+  /* Re-theme every child to paper by overriding the tokens they already use */
+  --panel: var(--paper);
+  --panel-2: var(--paper-2);
+  --panel-3: var(--paper-3);
+  --border: var(--paper-line);
+  --border-2: var(--paper-line);
+  --text: var(--paper-ink);
+  --text-2: var(--paper-ink-2);
+  --muted: var(--paper-muted);
+  color: var(--paper-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .sheet {
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55))
+      drop-shadow(0 18px 40px rgba(0, 0, 0, 0.6));
+  }
+}
+
+/* Paper grain */
+.sheet::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--grain-op);
+  mix-blend-mode: var(--grain-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.32'/%3E%3C/svg%3E");
+}
+.sheet > * {
+  position: relative;
+}
+
+/* Cards flatten into perforated sections of the one bill */
+.sheet .card {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 4px 0 18px;
+  margin: 0 0 18px;
+  border-bottom: 1.5px dashed var(--paper-line);
+}
+.sheet .card:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 2px;
+}
+.sheet .pane-head {
+  margin: 0 0 18px;
+}
+.sheet .pane-head h2 {
+  color: var(--paper-ink);
+}
+
+/* Numbers get the receipt treatment */
+.sheet .item .price,
+.sheet .total-row .amt,
+.sheet .summary .line,
+.sheet .item .per,
+.sheet details.charges-wrap summary .amt,
+.cta-total b {
+  font-family: var(--mono);
+  letter-spacing: -0.02em;
+}
+.sheet .total-row .amt {
+  font-size: 17px;
+}
+
+/* Inputs stay clearly interactive against paper */
+.sheet input,
+.sheet textarea,
+.sheet .item .name,
+.sheet .item .price {
+  background: color-mix(in srgb, var(--paper) 60%, #fff);
+  border-color: var(--paper-line);
+}
+@media (prefers-color-scheme: dark) {
+  .sheet input,
+  .sheet textarea,
+  .sheet .item .name,
+  .sheet .item .price {
+    background: var(--paper-3);
+  }
+}
+.sheet .item {
+  background: color-mix(in srgb, var(--paper-2) 70%, transparent);
+  border-color: var(--paper-line);
+}
+.sheet .dropzone {
+  background: color-mix(in srgb, var(--paper-2) 60%, transparent);
+  border-color: var(--paper-line);
+}
+.sheet details.charges-wrap {
+  background: color-mix(in srgb, var(--paper-2) 60%, transparent);
+  border-color: var(--paper-line);
+}
+
+/* The action bar reads as part of the table, not the paper */
+.cta-bar {
+  background: color-mix(in srgb, var(--table-2) 78%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--paper-line) 45%, transparent);
+}

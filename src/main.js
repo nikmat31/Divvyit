@@ -356,7 +356,9 @@ function render() {
     </header>
 
     ${renderStepbar()}
-    <div class="pane" key="step-${step}">${renderStep(totals)}</div>
+    <div class="sheet">
+      <div class="pane" key="step-${step}">${renderStep(totals)}</div>
+    </div>
   `;
   renderCta(totals);
   wire();
