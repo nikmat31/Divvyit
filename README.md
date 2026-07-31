@@ -131,5 +131,5 @@ localStorage.setItem("divvy.aiEndpoint", "https://your-app.vercel.app/api/parse-
 
 - No offline support yet (no service worker), and the first OCR scan needs a connection to fetch the engine.
 - One bill at a time — there's no saved history.
-- The proxy has no rate limiting. It's protected by same-origin, POST-only, a mime-type check and a 5MB cap, but a determined person could still burn your free quota. Add rate limiting before sharing the URL widely.
+- **If you deploy this publicly, protect the proxy.** Anything fronting an API key should sit behind rate limiting and an access check — otherwise your provider quota is spendable by anyone who finds the endpoint. Treat the shipped validation (POST-only, mime-type check, size cap) as input hygiene, not access control.
 - No automated tests yet; `split.js` and `parser.js` are pure and would be easy to cover.
