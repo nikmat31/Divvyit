@@ -9,7 +9,7 @@
 Scan a bill, tag who ate what, and get exactly what each person owes —
 including a fair share of tax, tip and service.
 
-### 🍽️ [Open Divvy](https://divvyit.vercel.app)
+### 🍽️ [Open Divvy](https://divvyit.online)
 
 </div>
 
