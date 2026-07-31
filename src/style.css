@@ -704,11 +704,43 @@ header.app select {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+.assign-chip.everyone {
+  color: var(--brand);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+  background: var(--panel);
+}
+.assign-chip.everyone.on {
+  border-style: solid;
+  background: var(--brand-soft);
+  border-color: var(--brand);
+}
+
 .item .per {
   font-size: 11.5px;
   color: var(--muted);
   margin-top: 9px;
   font-variant-numeric: tabular-nums;
+}
+button.per.per-action {
+  display: block;
+  width: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-top: 9px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--brand);
+  text-align: left;
+  cursor: pointer;
+}
+button.per.per-action:hover {
+  border-color: transparent;
+  opacity: 0.75;
+}
+button.per.per-action u {
+  text-underline-offset: 2px;
 }
 
 /* ============================================================

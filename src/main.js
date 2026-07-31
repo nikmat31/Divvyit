@@ -108,12 +108,17 @@ function esc(s) {
 }
 
 /* ---------- mutations ---------- */
+// render() rebuilds the DOM, which drops focus. Set this to keep the caret in a
+// field across a re-render so names can be typed one after another.
+let focusAfterRender = null;
+
 function addMember(name) {
   name = name.trim();
   if (!name) return;
   const color = PALETTE[state.members.length % PALETTE.length];
   state.members.push({ id: uid(), name, color });
   save();
+  focusAfterRender = "member-name";
   render();
 }
 function removeMember(id) {
@@ -132,6 +137,27 @@ function removeItem(id) {
   save();
   render();
 }
+// Is this dish explicitly split evenly across everyone?
+function isEveryone(it) {
+  if (!state.members.length) return false;
+  const weights = state.members.map((m) => Number(it.shares[m.id]) || 0);
+  return weights.every((w) => w > 0) && new Set(weights).size === 1;
+}
+
+// Toggle "everyone shares this equally". Turning it off clears the tags, which
+// leaves the dish implicitly shared — same maths, but ready to be re-tagged.
+function toggleEveryone(itemId) {
+  const it = state.items.find((i) => i.id === itemId);
+  if (!it) return;
+  if (isEveryone(it)) it.shares = {};
+  else {
+    it.shares = {};
+    state.members.forEach((m) => (it.shares[m.id] = 1));
+  }
+  save();
+  render();
+}
+
 function setShare(itemId, memberId, delta, exact) {
   const it = state.items.find((i) => i.id === itemId);
   if (!it) return;
@@ -181,7 +207,7 @@ function clearAll() {
   if (!confirm("Clear all items, members, and charges? This can't be undone.")) return;
   state = blankState(state.currency);
   save();
-  render();
+  goStep(1); // start over means going back to the beginning, not sitting on an empty step
 }
 
 /* ---------- OCR / import ---------- */
@@ -335,6 +361,11 @@ function render() {
   renderCta(totals);
   wire();
   updateOcrUI();
+
+  if (focusAfterRender) {
+    document.getElementById(focusAfterRender)?.focus();
+    focusAfterRender = null;
+  }
 }
 
 function renderStepbar() {
@@ -437,7 +468,10 @@ function perLineHTML(it, totals) {
     .filter((m) => bd[m.id] != null && (Number(it.shares[m.id]) || 0) > 0)
     .map((m) => `${esc(m.name)} ${money(bd[m.id])}`);
   if (!Object.keys(it.shares).length) {
-    return `<div class="per" style="color:var(--brand)">Shared equally by everyone</div>`;
+    // Untagged dishes are shared by everyone — make that an action, not a label.
+    return `<button class="per per-action" data-everyone="${it.id}">
+        Shared equally by everyone · <u>tag it</u>
+      </button>`;
   }
   return parts.length ? `<div class="per">${parts.join("  ·  ")}</div>` : "";
 }
@@ -445,6 +479,10 @@ function perLineHTML(it, totals) {
 function renderItems(totals) {
   const rows = state.items
     .map((it) => {
+      const everyoneChip =
+        state.members.length > 1
+          ? `<button class="assign-chip everyone ${isEveryone(it) ? "on" : ""}" data-everyone="${it.id}">👥 Everyone</button>`
+          : "";
       const assignChips = state.members
         .map((m) => {
           const w = Number(it.shares[m.id]) || 0;
@@ -472,7 +510,7 @@ function renderItems(totals) {
             <input class="price" data-field="price" data-id="${it.id}" value="${esc(it.price)}" inputmode="decimal" placeholder="0.00" aria-label="Price" />
             <button class="icon danger" data-remove-item="${it.id}" title="Remove dish" aria-label="Remove dish">✕</button>
           </div>
-          ${state.members.length ? `<div class="assign">${assignChips}</div>` : `<div class="per">Add people above to assign this dish.</div>`}
+          ${state.members.length ? `<div class="assign">${everyoneChip}${assignChips}</div>` : `<div class="per">Add people above to assign this dish.</div>`}
           <div data-per="${it.id}">${perLineHTML(it, totals)}</div>
         </div>`;
     })
@@ -1057,6 +1095,10 @@ function wire() {
   );
   app.querySelectorAll("[data-remove-item]").forEach(
     (b) => (b.onclick = () => removeItem(b.dataset.removeItem)),
+  );
+
+  app.querySelectorAll("[data-everyone]").forEach(
+    (b) => (b.onclick = () => toggleEveryone(b.dataset.everyone)),
   );
 
   // share steppers
