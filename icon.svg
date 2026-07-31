@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Divvy">
+  <rect width="512" height="512" rx="112" fill="#4f46e5" />
+  <!-- receipt -->
+  <path
+    d="M150 104h212a16 16 0 0 1 16 16v266l-38-22-38 22-38-22-38 22-38-22-38 22V120a16 16 0 0 1 16-16z"
+    fill="#ffffff"
+  />
+  <!-- lines -->
+  <rect x="188" y="166" width="98" height="20" rx="10" fill="#4f46e5" />
+  <rect x="304" y="166" width="40" height="20" rx="10" fill="#c7d2fe" />
+  <rect x="188" y="220" width="76" height="20" rx="10" fill="#4f46e5" />
+  <rect x="304" y="220" width="40" height="20" rx="10" fill="#c7d2fe" />
+  <rect x="188" y="274" width="110" height="20" rx="10" fill="#4f46e5" />
+  <rect x="304" y="274" width="40" height="20" rx="10" fill="#c7d2fe" />
+  <!-- split dots -->
+  <circle cx="196" cy="428" r="26" fill="#10b981" />
+  <circle cx="256" cy="428" r="26" fill="#f59e0b" />
+  <circle cx="316" cy="428" r="26" fill="#0ea5e9" />
+</svg>
