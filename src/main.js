@@ -36,7 +36,33 @@ function blankState(currency = "₹") {
 
 let state = migrate(load()) || blankState();
 
-let ocr = { running: false, progress: 0, status: "" };
+let ocr = { running: false, progress: 0, status: "", mode: "ocr" };
+
+/* ---------- guided flow ----------
+   1 People  ->  2 Bill  ->  3 Split
+   Derived on load so a returning user lands where they left off. */
+const STEPS = [
+  { n: 1, label: "People" },
+  { n: 2, label: "Bill" },
+  { n: 3, label: "Split" },
+];
+let step = 1;
+function deriveStep() {
+  if (state.items.length) return 3;
+  if (state.members.length) return 2;
+  return 1;
+}
+function stepReachable(n) {
+  if (n === 1) return true;
+  if (n === 2) return state.members.length > 0;
+  return state.items.length > 0;
+}
+function goStep(n, { scroll = true } = {}) {
+  if (!stepReachable(n)) return;
+  step = n;
+  render();
+  if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
 /* ---------- persistence + migration ---------- */
 function load() {
@@ -171,7 +197,7 @@ async function handleFiles(fileList) {
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const label = files.length > 1 ? ` (${i + 1}/${files.length})` : "";
-    ocr = { running: true, progress: 0, status: `Reading image…${label}` };
+    ocr = { running: true, progress: 0, status: `Reading image…${label}`, mode: "ai" };
     render();
 
     // Try the AI proxy first — far more accurate on real photos. If it isn't
@@ -222,6 +248,10 @@ async function handleFiles(fileList) {
     }
     if (usedAI) continue;
 
+    // AI unavailable — fall back to on-device OCR and relabel the animation.
+    ocr = { running: true, progress: 0, status: `Reading image…${label}`, mode: "ocr" };
+    updateOcrUI();
+
     try {
       const text = await runOCR(file, {
         evaluate: (t) => parseReceipt(t).items.length,
@@ -251,9 +281,11 @@ async function handleFiles(fileList) {
     ocr = {
       running: false,
       progress: 100,
-      status: `Added ${imported} item${imported > 1 ? "s" : ""} — check the amounts below.`,
+      status: `Added ${imported} item${imported > 1 ? "s" : ""} — check the amounts.`,
+      mode: ocr.mode,
     };
-    render();
+    // Parsing done: move the user straight on to tagging.
+    goStep(3);
     return;
   }
 
@@ -282,82 +314,118 @@ function render() {
   const totals = computeTotals(state);
   app.innerHTML = `
     <header class="app">
-      <span class="logo">🍽️</span>
+      <img class="brand-logo" src="./icon.svg" alt="" width="38" height="38" />
       <div>
         <h1>Divvy</h1>
         <div class="sub">Split any food bill, dish by dish</div>
       </div>
       <span class="spacer"></span>
-      <select id="currency" title="Currency">
+      <select id="currency" title="Currency" aria-label="Currency">
         ${CURRENCIES.map(
           (c) =>
             `<option value="${c.sym}" ${c.sym === state.currency ? "selected" : ""}>${c.code} ${c.sym.trim()}</option>`,
         ).join("")}
       </select>
-      <button class="ghost icon" id="btn-clear" title="Clear everything">🗑️</button>
+      <button class="ghost icon" id="btn-clear" title="Start over" aria-label="Start over">🗑️</button>
     </header>
 
-    ${renderMembers()}
-    ${renderImport()}
-    ${renderItems(totals)}
-    ${renderCharges()}
-    ${renderTotals(totals)}
+    ${renderStepbar()}
+    <div class="pane" key="step-${step}">${renderStep(totals)}</div>
   `;
+  renderCta(totals);
   wire();
   updateOcrUI();
 }
 
-function renderMembers() {
+function renderStepbar() {
+  return `
+    <nav class="stepbar" aria-label="Progress">
+      ${STEPS.map((s) => {
+        const active = s.n === step;
+        const done = s.n < step && stepReachable(s.n);
+        return `<button data-step="${s.n}" class="${active ? "active" : ""} ${done ? "done" : ""}"
+            ${stepReachable(s.n) ? "" : "disabled"}
+            ${active ? 'aria-current="step"' : ""}>
+            <span class="n">${done ? "✓" : s.n}</span><span class="lbl">${s.label}</span>
+          </button>`;
+      }).join("")}
+    </nav>`;
+}
+
+function renderStep(totals) {
+  if (step === 1) return renderPeopleStep();
+  if (step === 2) return renderBillStep();
+  return renderSplitStep(totals);
+}
+
+/* ---------- Step 1: people ---------- */
+function renderPeopleStep() {
   const chips = state.members
     .map(
       (m) => `
       <span class="member-chip">
         <span class="dot" style="background:${m.color}"></span>
         ${esc(m.name)}
-        <button data-remove-member="${m.id}" title="Remove">✕</button>
+        <button data-remove-member="${m.id}" title="Remove ${esc(m.name)}" aria-label="Remove ${esc(m.name)}">✕</button>
       </span>`,
     )
     .join("");
   return `
+    <div class="pane-head">
+      <h2>Who's splitting?</h2>
+      <p>Add everyone at the table — first names are enough.</p>
+    </div>
     <section class="card">
-      <h2>Who's here <span class="count">${state.members.length || ""}</span></h2>
-      <div class="members">${chips || '<span class="empty">Add the people sharing this bill.</span>'}</div>
+      <h2>People <span class="count">${state.members.length || ""}</span></h2>
+      <div class="members">${chips || '<span class="empty">Nobody yet. Add the first person below.</span>'}</div>
       <form class="add-member" id="member-form">
-        <input id="member-name" placeholder="Add a name…" autocomplete="off" />
+        <input id="member-name" placeholder="Add a name…" autocomplete="off" enterkeyhint="done" />
         <button class="primary" type="submit">Add</button>
       </form>
     </section>`;
 }
 
-function renderImport() {
+/* ---------- Step 2: the bill ---------- */
+function renderBillStep() {
   return `
-    <section class="card">
+    <div class="pane-head">
       <h2>Add the bill</h2>
-      <div class="import-actions">
-        <button class="primary" id="btn-photo">📷 Scan bill photo</button>
-        <button id="btn-add-item">＋ Add dish manually</button>
-        <input
-          class="full"
-          type="file"
-          id="file-input"
-          accept="image/*,.heic,.heif"
-          multiple
-          hidden
-        />
-      </div>
+      <p>Snap a photo and we'll read the dishes and prices for you.</p>
+    </div>
+    <section class="card">
       <div id="ocr-area"></div>
+      <div class="import-actions" id="import-actions">
+        <div class="dropzone">
+          <span class="zi">🧾</span>
+          <p>Photo, screenshot or e-bill — JPEG, PNG, HEIC, WebP.<br />You can also drag one here or paste with ⌘V.</p>
+          <button class="primary big" id="btn-photo">📷 Scan bill photo</button>
+        </div>
+        <button id="btn-add-item">＋ Enter dishes manually instead</button>
+        <input type="file" id="file-input" accept="image/*,.heic,.heif" multiple hidden />
+      </div>
       <details style="margin-top:12px">
-        <summary class="hint" style="cursor:pointer">Or paste bill text</summary>
-        <textarea id="paste-box" placeholder="Paste receipt text here (one item per line)…" style="margin-top:8px" aria-label="Bill text"></textarea>
+        <summary class="hint" style="cursor:pointer">Or paste the bill text</summary>
+        <textarea id="paste-box" placeholder="Paste receipt text here (one item per line)…" style="margin-top:9px" aria-label="Bill text"></textarea>
         <div class="toolbar"><button id="btn-parse-text">Parse text</button></div>
       </details>
       <p class="hint">
-        Works with photos, screenshots and e-bills (JPEG, PNG, HEIC, WebP…) —
-        drag one here or paste with ⌘V. For best results shoot the bill
-        <b>flat, straight-on and well lit</b>, filling the frame. Faded or
-        crumpled receipts often misread, so always check the amounts.
+        For best results shoot the bill <b>flat, straight-on and well lit</b>,
+        filling the frame. Faded or crumpled receipts can misread, so always
+        check the amounts afterwards.
       </p>
     </section>`;
+}
+
+/* ---------- Step 3: split ---------- */
+function renderSplitStep(totals) {
+  return `
+    <div class="pane-head">
+      <h2>Who had what?</h2>
+      <p>Tap a name under each dish. Use −/+ when someone had more than one.</p>
+    </div>
+    ${renderItems(totals)}
+    ${renderCharges(totals)}
+    ${renderTotals(totals)}`;
 }
 
 // The "Nikhil ₹200 · Priya ₹100" line under a dish. Kept separate so it can be
@@ -413,24 +481,33 @@ function renderItems(totals) {
     <section class="card">
       <h2>Dishes <span class="count">${state.items.length || ""}</span></h2>
       ${rows || '<div class="empty">No dishes yet — scan a bill or add one manually.</div>'}
-      ${state.items.length ? `<div class="toolbar"><button id="btn-add-item-2">＋ Add dish</button></div>` : ""}
-      ${state.members.length ? `<p class="hint">Tap a name to add their share. Use −/+ for uneven splits (e.g. 2 for one person, 1 for another).</p>` : ""}
+      <div class="toolbar">
+        <button class="ghost" id="btn-rescan">📷 Scan another</button>
+        <button id="btn-add-item-2">＋ Add dish</button>
+      </div>
     </section>`;
 }
 
-function renderCharges() {
+function renderCharges(totals) {
   const f = (k, label) =>
-    `<div><label>${label}</label><input data-charge="${k}" value="${esc(state.charges[k])}" inputmode="decimal" placeholder="0.00" /></div>`;
+    `<div><label for="ch-${k}">${label}</label><input id="ch-${k}" data-charge="${k}" value="${esc(state.charges[k])}" inputmode="decimal" placeholder="0.00" /></div>`;
+  const any = ["tax", "tip", "service", "discount"].some((k) => Number(state.charges[k]));
   return `
     <section class="card">
-      <h2>Tax, tip & extras</h2>
-      <div class="charges">
-        ${f("tax", "Tax")}
-        ${f("tip", "Tip")}
-        ${f("service", "Service charge")}
-        ${f("discount", "Discount (−)")}
-      </div>
-      <p class="hint">Extras are split in proportion to what each person ate.</p>
+      <h2>Tax, tip &amp; extras</h2>
+      <details class="charges-wrap" ${any ? "open" : ""}>
+        <summary>
+          <span>${any ? "Detected on the bill" : "Add tax, tip or service"}</span>
+          <span class="amt">${money(totals.extras)}</span>
+        </summary>
+        <div class="charges">
+          ${f("tax", "Tax")}
+          ${f("tip", "Tip")}
+          ${f("service", "Service charge")}
+          ${f("discount", "Discount (−)")}
+        </div>
+        <p class="hint">Split in proportion to what each person ate.</p>
+      </details>
     </section>`;
 }
 
@@ -480,10 +557,45 @@ function renderTotals(t) {
         <div class="line"><span>Tax + tip + service − discount</span><span>${money(t.extras)}</span></div>
         <div class="line grand"><span>Grand total</span><span>${money(t.grand)}</span></div>
       </div>
-      <div class="toolbar" style="margin-top:14px">
-        <button class="primary" id="btn-share" ${state.members.length && state.items.length ? "" : "disabled"}>📤 Share the split</button>
-      </div>
     </section>`;
+}
+
+/* ---------- sticky action bar (contextual per step) ---------- */
+function renderCta(totals) {
+  document.querySelector(".cta-bar")?.remove();
+  let inner = "";
+
+  if (step === 1) {
+    const n = state.members.length;
+    inner = `<button class="primary big" id="cta-next" ${n ? "" : "disabled"}>
+        ${n ? `Next — add the bill` : "Add someone to continue"}
+      </button>`;
+  } else if (step === 2) {
+    inner = `<button class="ghost" id="cta-back">Back</button>
+      ${
+        state.items.length
+          ? `<button class="primary grow2" id="cta-next">Next — split it</button>`
+          : `<button class="grow2" id="cta-skip">Skip for now</button>`
+      }`;
+  } else {
+    inner = `<div class="cta-total"><span>Total</span><b>${money(totals.grand)}</b></div>
+      <button class="primary grow2" id="cta-share" ${state.members.length && state.items.length ? "" : "disabled"}>
+        📤 Share the split
+      </button>`;
+  }
+
+  const bar = document.createElement("div");
+  bar.className = "cta-bar";
+  bar.innerHTML = `<div class="cta-inner">${inner}</div>`;
+  document.body.appendChild(bar);
+
+  bar.querySelector("#cta-next")?.addEventListener("click", () => goStep(step + 1));
+  bar.querySelector("#cta-back")?.addEventListener("click", () => goStep(step - 1));
+  bar.querySelector("#cta-share")?.addEventListener("click", openShare);
+  bar.querySelector("#cta-skip")?.addEventListener("click", () => {
+    if (!state.items.length) addItem();
+    goStep(3);
+  });
 }
 
 /* ---------- shareable receipt ---------- */
@@ -837,15 +949,36 @@ function openShare() {
 /* ---------- OCR sub-UI (updated without full re-render) ---------- */
 function updateOcrUI() {
   const area = document.getElementById("ocr-area");
+  const actions = document.getElementById("import-actions");
   if (!area) return;
+
   if (ocr.running) {
+    if (actions) actions.style.display = "none";
+    // Progress is only meaningful for on-device OCR; the AI call is a single
+    // opaque request, so show an indeterminate bar for it instead.
+    const indet = ocr.mode === "ai" || !ocr.progress;
     area.innerHTML = `
-      <div class="progress"><span style="width:${ocr.progress}%"></span></div>
-      <div class="ocr-status">${esc(ocr.status)}</div>`;
-  } else if (ocr.status) {
-    area.innerHTML = `<div class="ocr-status">${esc(ocr.status)}</div>`;
+      <div class="scan">
+        <div class="scan-doc">
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+          <div class="scan-beam"></div>
+        </div>
+        <div class="scan-body">
+          <div class="scan-title">
+            Reading your bill
+            <span class="badge">${ocr.mode === "ai" ? "✨ AI" : "On-device"}</span>
+          </div>
+          <div class="ocr-status">${esc(ocr.status)}</div>
+          <div class="progress ${indet ? "indeterminate" : ""}">
+            <span style="width:${indet ? 40 : ocr.progress}%"></span>
+          </div>
+        </div>
+      </div>`;
   } else {
-    area.innerHTML = "";
+    if (actions) actions.style.display = "";
+    area.innerHTML = ocr.status
+      ? `<div class="ocr-status" style="margin-bottom:12px">${esc(ocr.status)}</div>`
+      : "";
   }
 }
 
@@ -853,8 +986,6 @@ function updateOcrUI() {
 // Handlers for controls inside the totals card. Called on full render and again
 // whenever that card is swapped out by refreshDerived().
 function wireTotalsCard() {
-  const shareBtn = app.querySelector("#btn-share");
-  if (shareBtn) shareBtn.onclick = openShare;
   const dismiss = app.querySelector("#btn-dismiss-mismatch");
   if (dismiss)
     dismiss.onclick = () => {
@@ -864,45 +995,62 @@ function wireTotalsCard() {
     };
 }
 
+// Every step renders a different subset of the UI, so all lookups must tolerate
+// a missing element — one unguarded null here silently kills the whole wiring.
+function on(id, event, handler) {
+  const el = document.getElementById(id);
+  if (el) el[`on${event}`] = handler;
+  return el;
+}
+
 function wire() {
-  document.getElementById("btn-clear").onclick = clearAll;
-  document.getElementById("currency").onchange = (e) => {
+  on("btn-clear", "click", clearAll);
+  on("currency", "change", (e) => {
     state.currency = e.target.value;
     save();
     render();
-  };
+  });
 
-  document.getElementById("member-form").onsubmit = (e) => {
+  on("member-form", "submit", (e) => {
     e.preventDefault();
-    addMember(document.getElementById("member-name").value);
-  };
+    const input = document.getElementById("member-name");
+    if (input) addMember(input.value);
+  });
+
+  app.querySelectorAll("[data-step]").forEach(
+    (b) => (b.onclick = () => goStep(Number(b.dataset.step))),
+  );
 
   const fileInput = document.getElementById("file-input");
-  document.getElementById("btn-photo").onclick = () => fileInput.click();
-  fileInput.onchange = (e) => {
-    handleFiles(e.target.files);
-    e.target.value = ""; // allow re-picking the same file
-  };
+  on("btn-photo", "click", () => fileInput?.click());
+  if (fileInput) {
+    fileInput.onchange = (e) => {
+      handleFiles(e.target.files);
+      e.target.value = ""; // allow re-picking the same file
+    };
+  }
+  on("btn-rescan", "click", () => goStep(2));
 
   wireTotalsCard();
 
-  const addBtn = document.getElementById("btn-add-item");
-  if (addBtn) addBtn.onclick = () => addItem();
-  const addBtn2 = document.getElementById("btn-add-item-2");
-  if (addBtn2) addBtn2.onclick = () => addItem();
+  on("btn-add-item", "click", () => {
+    addItem();
+    goStep(3);
+  });
+  on("btn-add-item-2", "click", () => addItem());
 
-  const parseBtn = document.getElementById("btn-parse-text");
-  if (parseBtn)
-    parseBtn.onclick = () => {
-      const box = document.getElementById("paste-box");
-      const parsed = parseReceipt(box.value);
-      if (!parsed.items.length) {
-        alert("Couldn't find any priced items in that text.");
-        return;
-      }
-      box.value = "";
-      importParsed(parsed);
-    };
+  on("btn-parse-text", "click", () => {
+    const box = document.getElementById("paste-box");
+    if (!box) return;
+    const parsed = parseReceipt(box.value);
+    if (!parsed.items.length) {
+      alert("Couldn't find any priced items in that text.");
+      return;
+    }
+    box.value = "";
+    importParsed(parsed);
+    goStep(3);
+  });
 
   app.querySelectorAll("[data-remove-member]").forEach(
     (b) => (b.onclick = () => removeMember(b.dataset.removeMember)),
@@ -958,10 +1106,15 @@ function refreshDerived() {
     const tmp = document.createElement("div");
     tmp.innerHTML = renderTotals(totals);
     totalsCard.replaceWith(tmp.firstElementChild);
-    // The replaced markup includes these controls, so re-attach their handlers
-    // (otherwise Share goes dead after you edit a price).
+    // The replaced markup includes the dismiss control, so re-attach handlers.
     wireTotalsCard();
   }
+
+  // Keep the collapsed charges summary and the sticky bar's total in sync.
+  const chargeAmt = app.querySelector("details.charges-wrap summary .amt");
+  if (chargeAmt) chargeAmt.textContent = money(totals.extras);
+  const ctaTotal = document.querySelector(".cta-total b");
+  if (ctaTotal) ctaTotal.textContent = money(totals.grand);
 }
 
 /* ---------- drag & drop + clipboard paste (whole window) ---------- */
@@ -1008,4 +1161,5 @@ window.addEventListener("paste", (e) => {
   handleFiles(files);
 });
 
+step = deriveStep(); // returning users land where they left off
 render();
