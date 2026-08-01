@@ -2,57 +2,227 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- viewport-fit=cover for iPhone notch; zoom intentionally NOT disabled (a11y) -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f7f4ee" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)" />
 
-    <title>Divvy — Split any food bill</title>
+    <title>Divvy — Split any restaurant bill in four taps</title>
     <meta
       name="description"
-      content="Scan any food bill, tag who ate what, and see exactly what each person owes. Runs entirely in your browser — nothing is uploaded."
+      content="Add who's there, upload the bill, tag who ate what, send everyone their share. No login, no app to install. Free."
     />
-
     <link rel="canonical" href="https://divvyit.online/" />
 
-    <!-- Link previews -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Divvy" />
     <meta property="og:url" content="https://divvyit.online/" />
-    <meta property="og:title" content="Divvy — Split any food bill" />
+    <meta property="og:title" content="Divvy — Split any restaurant bill in four taps" />
     <meta
       property="og:description"
-      content="Scan a bill, tag who ate what, get each person's total. Tax and tip split by what you actually ate."
+      content="Add, upload, tag, send. Tax and tip split by what each person actually ate. No login, nothing to install."
     />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Divvy — Split any food bill" />
+    <meta name="twitter:title" content="Divvy — Split any restaurant bill in four taps" />
     <meta
       name="twitter:description"
-      content="Scan a bill, tag who ate what, get each person's total."
+      content="Add, upload, tag, send. No login, nothing to install."
     />
 
-    <!-- Icons / installability -->
-    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="manifest" href="./manifest.webmanifest" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Divvy" />
-
-    <link rel="stylesheet" href="./src/style.css" />
-
-    <!-- OCR engine (only fetched when you actually scan an image) -->
-    <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/site/landing.css" />
   </head>
   <body>
-    <div id="app">
-      <p class="boot">Loading Divvy…</p>
-    </div>
-    <noscript>
-      <p style="padding: 24px; text-align: center">
-        Divvy needs JavaScript to split bills. Please enable it and reload.
+    <!-- ══ nav ══ -->
+    <header class="nav">
+      <a class="brand" href="/">
+        <img src="/icon.svg" width="30" height="30" alt="" />
+        <span>Divvy</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#how">How it works</a>
+        <a href="#why">Why it's different</a>
+        <a href="https://github.com/nikmat31/Divvyit" rel="noopener">GitHub</a>
+      </nav>
+      <a class="btn btn-primary btn-sm" href="/app">Open&nbsp;app</a>
+    </header>
+
+    <main>
+      <!-- ══ hero ══ -->
+      <section class="hero">
+        <div class="hero-copy">
+          <span class="eyebrow">Free · No account · Works in any browser</span>
+          <h1>Split any bill in <em>four taps</em>.</h1>
+          <p class="lede">
+            Add who's there, upload the bill, tag who ate what, send everyone
+            their share. No login, no app store, no spreadsheet at the table.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary btn-lg" href="/app">Split a bill →</a>
+            <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+          </div>
+          <p class="microcopy">
+            Takes about a minute. Nothing to install, nothing to sign up for.
+          </p>
+        </div>
+
+        <!-- interactive demo -->
+        <div class="hero-demo">
+          <div class="phone" id="demo">
+            <div class="phone-notch"></div>
+            <div class="phone-screen" id="demo-screen"></div>
+          </div>
+          <div class="demo-caption" id="demo-caption">Adding everyone at the table…</div>
+        </div>
+      </section>
+
+      <!-- ══ steps ══ -->
+      <section class="section" id="how">
+        <div class="section-head">
+          <h2>Add. Upload. Tag. Send.</h2>
+          <p>
+            That's the whole product. Tap a step to watch it — or just
+            <a href="/app">go and do it</a>.
+          </p>
+        </div>
+
+        <ol class="steps" id="steps">
+          <li>
+            <button data-step="0">
+              <span class="sn">1</span>
+              <span class="st">
+                <strong>Add</strong>
+                <em>Who's at the table — first names are enough.</em>
+              </span>
+            </button>
+            <div class="sbar"><i></i></div>
+          </li>
+          <li>
+            <button data-step="1">
+              <span class="sn">2</span>
+              <span class="st">
+                <strong>Upload</strong>
+                <em>Photograph the bill. AI reads the dishes and prices.</em>
+              </span>
+            </button>
+            <div class="sbar"><i></i></div>
+          </li>
+          <li>
+            <button data-step="2">
+              <span class="sn">3</span>
+              <span class="st">
+                <strong>Tag</strong>
+                <em>Tap names under each dish. Two beers? Tap twice.</em>
+              </span>
+            </button>
+            <div class="sbar"><i></i></div>
+          </li>
+          <li>
+            <button data-step="3">
+              <span class="sn">4</span>
+              <span class="st">
+                <strong>Send</strong>
+                <em>A clean receipt with everyone's number, into the group chat.</em>
+              </span>
+            </button>
+            <div class="sbar"><i></i></div>
+          </li>
+        </ol>
+      </section>
+
+      <!-- ══ why ══ -->
+      <section class="section alt" id="why">
+        <div class="section-head">
+          <h2>Built to be trusted with money</h2>
+          <p>Splitting is only useful if the numbers are right.</p>
+        </div>
+
+        <div class="cards">
+          <article class="card">
+            <span class="ci">🔓</span>
+            <h3>No account, ever</h3>
+            <p>
+              Open the link and start. Your bills live in your browser — there's
+              no database, no profile, nothing to delete later.
+            </p>
+          </article>
+          <article class="card">
+            <span class="ci">🧾</span>
+            <h3>Reads the messy ones</h3>
+            <p>
+              Crumpled thermal receipts, angled photos, dark-mode screenshots.
+              It crops to the bill, reads the columns, and keeps the quantities.
+            </p>
+          </article>
+          <article class="card">
+            <span class="ci">🧮</span>
+            <h3>Maths you can check</h3>
+            <p>
+              Tax and tip are split by what each person actually ate. Divvy
+              compares its total against the one printed on the bill and tells
+              you when they disagree.
+            </p>
+          </article>
+          <article class="card">
+            <span class="ci">💬</span>
+            <h3>Ends in the group chat</h3>
+            <p>
+              Whole-number amounts that still add up exactly, on a receipt image
+              you can send anywhere. No "settle up" nagging.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ══ fair share ══ -->
+      <section class="section split-demo">
+        <div class="fair">
+          <div class="fair-copy">
+            <h2>Nobody subsidises the drinkers</h2>
+            <p>
+              Even splits are the reason bill-splitting feels unfair. Divvy
+              divides each dish only between the people who had it — and the
+              <strong>−/+</strong> buttons handle the plate of three where one
+              person had two.
+            </p>
+            <p>
+              Tax and service then spread <em>in proportion</em> to what each
+              person ate, so the person who had a soda isn't covering someone
+              else's whisky.
+            </p>
+          </div>
+          <div class="fair-vis" id="fair-vis"></div>
+        </div>
+      </section>
+
+      <!-- ══ final cta ══ -->
+      <section class="section closer">
+        <h2>Next dinner, skip the arguing.</h2>
+        <p>One link. No sign-up. Works on whatever phone is closest.</p>
+        <a class="btn btn-primary btn-lg" href="/app">Split a bill →</a>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="foot-inner">
+        <div class="foot-brand">
+          <img src="/icon.svg" width="24" height="24" alt="" />
+          <span>Divvy</span>
+        </div>
+        <nav>
+          <a href="/app">Open app</a>
+          <a href="https://github.com/nikmat31/Divvyit" rel="noopener">Source</a>
+          <a href="https://github.com/nikmat31/Divvyit/blob/main/LICENSE" rel="noopener">MIT</a>
+        </nav>
+      </div>
+      <p class="foot-note">
+        Bills are processed to read the text and are never stored on a server.
+        Splits stay in your browser.
       </p>
-    </noscript>
-    <script type="module" src="./src/main.js"></script>
+    </footer>
+
+    <script src="/site/landing.js" defer></script>
   </body>
 </html>

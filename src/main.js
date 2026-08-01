@@ -340,7 +340,7 @@ function render() {
   const totals = computeTotals(state);
   app.innerHTML = `
     <header class="app">
-      <img class="brand-logo" src="./icon.svg" alt="" width="38" height="38" />
+      <img class="brand-logo" src="/icon.svg" alt="" width="38" height="38" />
       <div>
         <h1>Divvy</h1>
         <div class="sub">Split any food bill, dish by dish</div>

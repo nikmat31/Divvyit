@@ -2,15 +2,15 @@
   "name": "Divvy — Split any food bill",
   "short_name": "Divvy",
   "description": "Scan a food bill, tag who ate what, and see what each person owes.",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f6f7f9",
+  "background_color": "#f4f5f8",
   "theme_color": "#4f46e5",
   "icons": [
     {
-      "src": "./icon.svg",
+      "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"

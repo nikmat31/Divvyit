@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover for iPhone notch; zoom intentionally NOT disabled (a11y) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)" />
+
+    <title>Divvy — Split any food bill</title>
+    <meta
+      name="description"
+      content="Scan any food bill, tag who ate what, and see exactly what each person owes. Runs entirely in your browser — nothing is uploaded."
+    />
+
+    <link rel="canonical" href="https://divvyit.online/app" />
+
+    <!-- Link previews -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Divvy" />
+    <meta property="og:url" content="https://divvyit.online/app" />
+    <meta property="og:title" content="Divvy — Split any food bill" />
+    <meta
+      property="og:description"
+      content="Scan a bill, tag who ate what, get each person's total. Tax and tip split by what you actually ate."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Divvy — Split any food bill" />
+    <meta
+      name="twitter:description"
+      content="Scan a bill, tag who ate what, get each person's total."
+    />
+
+    <!-- Icons / installability -->
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Divvy" />
+
+    <link rel="stylesheet" href="/src/style.css" />
+
+    <!-- OCR engine (only fetched when you actually scan an image) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <p class="boot">Loading Divvy…</p>
+    </div>
+    <noscript>
+      <p style="padding: 24px; text-align: center">
+        Divvy needs JavaScript to split bills. Please enable it and reload.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
