@@ -31,17 +31,9 @@ function totals() {
   }));
 }
 
-const STEP_MS = [3400, 4200, 4600, 4200];
-const CAPTIONS = [
-  "Adding everyone at the table…",
-  "Reading the bill — dishes, prices, tax.",
-  "Tagging who had what. Nikhil had both beers.",
-  "Sent. Everyone knows what they owe.",
-];
+const STEP_MS = [3200, 4200, 4600, 4400];
 
 const screen = document.getElementById("demo-screen");
-const caption = document.getElementById("demo-caption");
-const stepEls = [...document.querySelectorAll("#steps li")];
 const stepBtns = [...document.querySelectorAll("#steps button")];
 
 let current = -1;
@@ -151,18 +143,10 @@ const SCREENS = [screenAdd, screenUpload, screenTag, screenSend];
 function show(i, { auto = true } = {}) {
   current = i;
   screen.innerHTML = SCREENS[i]();
-  caption.textContent = CAPTIONS[i];
-
-  stepEls.forEach((li, n) => {
-    li.classList.toggle("on", n === i);
-    li.classList.toggle("done", n < i);
-    const bar = li.querySelector(".sbar i");
-    bar.style.animation = "none";
-    void bar.offsetWidth; // restart the fill animation
-    if (n === i) bar.style.animation = `fill ${STEP_MS[i]}ms linear forwards`;
-    else bar.style.width = n < i ? "100%" : "0";
+  stepBtns.forEach((b, n) => {
+    b.classList.toggle("on", n === i);
+    b.setAttribute("aria-selected", n === i ? "true" : "false");
   });
-
   clearTimeout(timer);
   if (auto) timer = setTimeout(() => show((i + 1) % SCREENS.length), STEP_MS[i]);
 }
@@ -191,40 +175,3 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) clearTimeout(timer);
   else if (current >= 0) show(current);
 });
-
-/* ---------- fair-share visual ---------- */
-(function fairShare() {
-  const el = document.getElementById("fair-vis");
-  if (!el) return;
-  const t = totals();
-  const max = Math.max(...t.map((p) => p.amount));
-  const even = Math.round(t.reduce((a, b) => a + b.amount, 0) / t.length);
-
-  el.innerHTML =
-    t
-      .map(
-        (p) => `
-      <div class="fv-row">
-        <div class="fv-top"><span>${p.name}</span><b>${money(p.amount)}</b></div>
-        <div class="fv-bar"><span data-w="${(p.amount / max) * 100}" style="width:0;background:${p.color}"></span></div>
-      </div>`,
-      )
-      .join("") +
-    `<div class="fv-note">An even split would charge everyone ${money(even)} —
-       and Arjun, who had one lassi, would be paying for two beers he never drank.</div>`;
-
-  // Grow the bars once they scroll into view.
-  const obs = new IntersectionObserver(
-    (entries, o) => {
-      entries.forEach((e) => {
-        if (!e.isIntersecting) return;
-        el.querySelectorAll(".fv-bar span").forEach((s, i) => {
-          setTimeout(() => (s.style.width = s.dataset.w + "%"), i * 130);
-        });
-        o.disconnect();
-      });
-    },
-    { threshold: 0.4 },
-  );
-  obs.observe(el);
-})();
