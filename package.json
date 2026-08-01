@@ -4,5 +4,8 @@
   "private": true,
   "type": "module",
   "description": "Split any food bill: scan it, tag who ate what, see what each person owes.",
-  "//": "No dependencies and no build step on purpose. The browser loads src/*.js as native ES modules, Tesseract comes from a CDN, and the serverless function uses the platform's built-in fetch. This file exists only to declare ESM so hosts don't try to build the project."
+  "//": "No dependencies and no build step on purpose. The browser loads src/*.js as native ES modules, Tesseract comes from a CDN, and the serverless function uses the platform's built-in fetch. This file exists only to declare ESM so hosts don't try to build the project.",
+  "dependencies": {
+    "@vercel/speed-insights": "^2.0.0"
+  }
 }
