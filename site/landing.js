@@ -175,3 +175,40 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) clearTimeout(timer);
   else if (current >= 0) show(current);
 });
+
+/* ---------- what each person actually owes ---------- */
+(function fairShare() {
+  const el = document.getElementById("fair-vis");
+  if (!el) return;
+  const t = totals();
+  const max = Math.max(...t.map((p) => p.amount));
+  const even = Math.round(t.reduce((a, b) => a + b.amount, 0) / t.length);
+
+  el.innerHTML =
+    t
+      .map(
+        (p) => `
+      <div class="fv-row">
+        <div class="fv-top"><span>${p.name}</span><b>${money(p.amount)}</b></div>
+        <div class="fv-bar"><span data-w="${(p.amount / max) * 100}" style="background:${p.color}"></span></div>
+      </div>`,
+      )
+      .join("") +
+    `<div class="fv-note">Split evenly, everyone would hand over ${money(even)} —
+       and Arjun, who had one lassi, would be paying for two beers he never touched.</div>`;
+
+  // Grow the bars once they scroll into view.
+  const obs = new IntersectionObserver(
+    (entries, o) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        el.querySelectorAll(".fv-bar span").forEach((s, i) => {
+          setTimeout(() => (s.style.width = s.dataset.w + "%"), i * 140);
+        });
+        o.disconnect();
+      });
+    },
+    { threshold: 0.4 },
+  );
+  obs.observe(el);
+})();
