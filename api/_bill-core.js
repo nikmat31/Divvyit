@@ -4,6 +4,8 @@
 //
 // The API key NEVER reaches the browser — it lives in the platform's env vars.
 
+import { checkRateLimit } from "./_ratelimit.js";
+
 // Alias that always resolves to Google's current Flash model. Deliberately not
 // pinned: Google retires specific versions (gemini-2.5-flash stopped accepting
 // new API keys), which hard-breaks a pinned default. Pin a version via the
@@ -156,6 +158,21 @@ export async function handleParseBill(request, env) {
   // base64 inflates by ~4/3; keeps someone from posting a huge payload.
   if (imageBase64.length * 0.75 > MAX_IMAGE_BYTES) {
     return json({ error: "Image too large — resize and retry." }, 413, origin);
+  }
+
+  // Metered only once the payload is known-good, so malformed requests can't
+  // burn someone's allowance, and always before the billable model call.
+  const limit = await checkRateLimit(request, env);
+  if (!limit.ok) {
+    const body = {
+      error:
+        limit.reason === "ip"
+          ? "You've scanned a lot of bills in the last hour. Give it a few minutes — you can still add dishes by hand in the meantime."
+          : "Divvy has hit its daily scanning limit. Scans fall back to your device for now, or add dishes by hand.",
+    };
+    const res = json(body, 429, origin);
+    res.headers.set("retry-after", String(limit.retryAfter));
+    return res;
   }
 
   const model = env.GEMINI_MODEL || DEFAULT_MODEL;

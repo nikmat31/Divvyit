@@ -22,17 +22,29 @@
       property="og:description"
       content="Photograph the bill, tag who had what, send everyone their share. Split by what you actually ate — no login needed."
     />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="https://divvyit.online/site/img/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Divvy — split any food bill with friends" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Divvy — A simple way to split any food bill with friends" />
     <meta
       name="twitter:description"
       content="Photograph the bill, tag who had what, send everyone their share. No login needed."
     />
+    <meta name="twitter:image" content="https://divvyit.online/site/img/og.jpg" />
 
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="icon" href="/site/img/icon-192.png" sizes="192x192" type="image/png" />
+    <!-- iOS ignores SVG here; it needs a real PNG or the home-screen tile is blank -->
+    <link rel="apple-touch-icon" href="/site/img/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/site/landing.css" />
+
+    <!-- Vercel Web Analytics + Speed Insights: enabled on the project, but a
+         static site has to include the tags itself or nothing is collected. -->
+    <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/_vercel/speed-insights/script.js"></script>
   </head>
   <body>
     <header class="nav">

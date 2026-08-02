@@ -25,7 +25,7 @@
       property="og:description"
       content="Scan a bill, tag who ate what, get each person's total. Tax and tip split by what you actually ate."
     />
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Divvy — Split any food bill" />
     <meta
       name="twitter:description"
@@ -33,9 +33,18 @@
     />
 
     <!-- Icons / installability -->
+    <meta property="og:image" content="https://divvyit.online/site/img/og.jpg" />
+    <meta name="twitter:image" content="https://divvyit.online/site/img/og.jpg" />
+
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="icon" href="/site/img/icon-192.png" sizes="192x192" type="image/png" />
+    <!-- iOS needs a PNG here, not the SVG, or the home-screen tile is blank -->
+    <link rel="apple-touch-icon" href="/site/img/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Analytics: measures how many landing visitors actually reach the app -->
+    <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/_vercel/speed-insights/script.js"></script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Divvy" />
 
