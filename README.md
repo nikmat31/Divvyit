@@ -9,7 +9,7 @@
 Scan a bill, tag who ate what, and get exactly what each person owes —
 including a fair share of tax, tip and service.
 
-### 🍽️ [Open Divvy](https://divvyit.online/app) · [divvyit.online](https://divvyit.online)
+### 🍽️ [Open Divvy](https://www.divvyit.online/app) · [divvyit.online](https://www.divvyit.online)
 
 </div>
 
@@ -85,11 +85,14 @@ are preserved.
 ## Privacy
 
 - Your bills, people and splits are stored **only in your browser** (`localStorage`).
-  There's no account, no database and no server-side copy.
+  There's no account, no database and no server-side copy of a split.
 - On the **OCR** path, the image never leaves your device.
-- On the **AI** path, the image is sent to Google's Gemini API to be read. If you'd
-  rather nothing left your device, self-host without the AI function — the app works
-  fully on OCR alone.
+- On the **AI** path, the image is sent to Google's Gemini API to be read, and is
+  not retained by Divvy. If you'd rather nothing left your device, self-host
+  without the AI function — the app works fully on OCR alone.
+- The hosted site at divvyit.online runs **Vercel Web Analytics**, which counts
+  page views without cookies and without profiling individuals. It sees no bill
+  contents. Self-hosted copies have none of this unless you add it.
 
 ## Self-hosting
 
@@ -102,9 +105,10 @@ dependencies to install** — the browser loads the source directly as ES module
 python3 -m http.server 8777
 ```
 
-Open `http://localhost:8777`. It must be served over HTTP — opening `index.html`
+The landing page is at `http://localhost:8777` and the app itself at
+`http://localhost:8777/app`. It must be served over HTTP — opening `index.html`
 via `file://` won't work, because browsers block module loading there. The AI
-function won't exist locally, so scans use OCR.
+function doesn't run locally, so scans fall back to on-device OCR.
 
 ### Deploy
 
@@ -136,28 +140,40 @@ the app quietly falls back to on-device OCR.
 HTTPS is required for the camera, clipboard and native share sheet — all the hosts
 above provide it.
 
-> **Deploying publicly?** Anything fronting an API key belongs behind rate limiting
-> and an access check. The shipped validation (POST-only, mime-type check, size cap)
-> is input hygiene, not access control.
+> **Deploying publicly?** Set the Upstash variables above. Without them the
+> proxy has input validation but no access control, and anyone who finds the
+> endpoint can spend your provider quota.
 
 ## How it's built
 
-Vanilla JavaScript, no framework, no build tooling. The whole client is five ES
-modules; the logic that matters is in pure functions that are easy to reason about
-and test.
+Vanilla JavaScript, no framework, no build tooling. The logic that matters lives
+in pure functions that are easy to reason about and test.
+
+The marketing page is served at `/` and the app at `/app`; they share nothing but
+the icon and the domain.
 
 | File | Purpose |
 |---|---|
-| `index.html` | Page shell and module entry |
+| **App** | |
+| `app/index.html` | App shell |
 | `src/main.js` | UI rendering, state, share card |
 | `src/split.js` | The splitting maths — pure functions |
 | `src/parser.js` | Text → line items and charges — pure functions |
 | `src/ocr.js` | Image decode, auto-crop, preprocessing, Tesseract |
-| `src/ai.js` | AI client, with automatic fallback |
-| `src/style.css` | All styling, light and dark |
-| `api/_bill-core.js` | Gemini call and response validation |
+| `src/ai.js` | AI client, with automatic fallback to OCR |
+| `src/style.css` | App styling, light and dark |
+| **Landing** | |
+| `index.html` | Landing page |
+| `site/landing.js` | The four-step demo and the fair-share chart |
+| `site/landing.css` | Landing styling |
+| **Server** | |
+| `api/_bill-core.js` | Gemini call, prompt, response validation |
+| `api/_ratelimit.js` | Optional per-IP and daily limits via Upstash |
 | `api/parse-bill.js` | Vercel endpoint |
 | `functions/api/parse-bill.js` | Cloudflare Pages endpoint |
+
+Files under `api/` beginning with `_` are shared modules, not routes — Vercel
+ignores them when mapping endpoints.
 
 Tesseract.js loads from a CDN on first scan. Everything else is local. Installable
 to a phone home screen via the web manifest, and themed for light and dark.
