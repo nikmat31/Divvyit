@@ -180,10 +180,22 @@ export async function handleParseBill(request, env) {
     model,
   )}:generateContent`;
 
+  // Bound the upstream call. Without this a slow Gemini response runs into the
+  // platform's own function limit, which kills us mid-flight and returns the
+  // host's HTML error page instead of our JSON — the client then waits the full
+  // limit before it can fall back to on-device OCR. Aborting first lets us
+  // answer quickly and cleanly.
+  const upstream = new AbortController();
+  const upstreamTimer = setTimeout(
+    () => upstream.abort(),
+    Number(env.GEMINI_TIMEOUT_MS) || 18000,
+  );
+
   let res;
   try {
     res = await fetch(url, {
       method: "POST",
+      signal: upstream.signal,
       headers: {
         "content-type": "application/json",
         "x-goog-api-key": apiKey,
@@ -206,8 +218,19 @@ export async function handleParseBill(request, env) {
       }),
     });
   } catch (e) {
-    return json({ error: "Couldn't reach the model provider." }, 502, origin);
+    clearTimeout(upstreamTimer);
+    const timedOut = e?.name === "AbortError";
+    return json(
+      {
+        error: timedOut
+          ? "Reading the bill took too long. Trying again usually works."
+          : "Couldn't reach the model provider.",
+      },
+      timedOut ? 504 : 502,
+      origin,
+    );
   }
+  clearTimeout(upstreamTimer);
 
   const payload = await res.json().catch(() => null);
 
