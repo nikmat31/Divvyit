@@ -163,6 +163,20 @@ export async function handleParseBill(request, env) {
   // Metered only once the payload is known-good, so malformed requests can't
   // burn someone's allowance, and always before the billable model call.
   const limit = await checkRateLimit(request, env);
+
+  // Non-sensitive diagnostics: says whether limiting is switched on and how
+  // much allowance is left. Also the only way to tell "configured" apart from
+  // "silently failing open" without reading platform logs.
+  const withLimitHeaders = (res) => {
+    res.headers.set("x-ratelimit-state", limit.state || "unknown");
+    if (limit.state === "active") {
+      res.headers.set("x-ratelimit-limit", String(limit.limit));
+      res.headers.set("x-ratelimit-remaining", String(limit.remaining));
+      res.headers.set("x-ratelimit-day-remaining", String(limit.dayRemaining));
+    }
+    return res;
+  };
+
   if (!limit.ok) {
     const body = {
       error:
@@ -172,7 +186,7 @@ export async function handleParseBill(request, env) {
     };
     const res = json(body, 429, origin);
     res.headers.set("retry-after", String(limit.retryAfter));
-    return res;
+    return withLimitHeaders(res);
   }
 
   const model = env.GEMINI_MODEL || DEFAULT_MODEL;
@@ -220,14 +234,16 @@ export async function handleParseBill(request, env) {
   } catch (e) {
     clearTimeout(upstreamTimer);
     const timedOut = e?.name === "AbortError";
-    return json(
-      {
-        error: timedOut
-          ? "Reading the bill took too long. Trying again usually works."
-          : "Couldn't reach the model provider.",
-      },
-      timedOut ? 504 : 502,
-      origin,
+    return withLimitHeaders(
+      json(
+        {
+          error: timedOut
+            ? "Reading the bill took too long. Trying again usually works."
+            : "Couldn't reach the model provider.",
+        },
+        timedOut ? 504 : 502,
+        origin,
+      ),
     );
   }
   clearTimeout(upstreamTimer);
@@ -246,7 +262,7 @@ export async function handleParseBill(request, env) {
     } else {
       error = `Model provider error: ${detail}`;
     }
-    return json({ error }, status, origin);
+    return withLimitHeaders(json({ error }, status, origin));
   }
 
   const text = payload?.candidates?.[0]?.content?.parts
@@ -271,11 +287,9 @@ export async function handleParseBill(request, env) {
 
   const result = clean(parsed);
   if (!result.items.length) {
-    return json(
-      { error: "No line items were readable in that image.", ...result },
-      422,
-      origin,
+    return withLimitHeaders(
+      json({ error: "No line items were readable in that image.", ...result }, 422, origin),
     );
   }
-  return json(result, 200, origin);
+  return withLimitHeaders(json(result, 200, origin));
 }

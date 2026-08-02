@@ -72,7 +72,10 @@ async function pipeline(env, commands) {
  * @returns {{ok: true} | {ok: false, reason: "ip"|"day", retryAfter: number}}
  */
 export async function checkRateLimit(request, env) {
-  if (!configured(env)) return { ok: true };
+  // "disabled"  — no Upstash credentials, limiting skipped
+  // "unavailable" — credentials present but Redis didn't answer (failing open)
+  // "active"    — counters incremented normally
+  if (!configured(env)) return { ok: true, state: "disabled" };
 
   const perIp = Number(env.RATE_PER_IP_HOURLY) || DEFAULT_PER_IP_HOURLY;
   const perDay = Number(env.RATE_PER_DAY) || DEFAULT_PER_DAY;
@@ -86,19 +89,25 @@ export async function checkRateLimit(request, env) {
     ["INCR", globalKey],
     ["EXPIRE", globalKey, 86400, "NX"],
   ]);
-  if (!out || !Array.isArray(out)) return { ok: true }; // fail open
+  if (!out || !Array.isArray(out)) return { ok: true, state: "unavailable" };
 
   const ipCount = Number(out[0]?.result ?? 0);
   const dayCount = Number(out[2]?.result ?? 0);
+  const base = {
+    state: "active",
+    limit: perIp,
+    remaining: Math.max(0, perIp - ipCount),
+    dayRemaining: Math.max(0, perDay - dayCount),
+  };
 
   if (ipCount > perIp) {
     // Seconds left in this hour bucket.
     const retryAfter = 3600 - (Math.floor(Date.now() / 1000) % 3600);
-    return { ok: false, reason: "ip", retryAfter };
+    return { ...base, ok: false, reason: "ip", retryAfter };
   }
   if (dayCount > perDay) {
     const retryAfter = 86400 - (Math.floor(Date.now() / 1000) % 86400);
-    return { ok: false, reason: "day", retryAfter };
+    return { ...base, ok: false, reason: "day", retryAfter };
   }
-  return { ok: true };
+  return { ...base, ok: true };
 }
