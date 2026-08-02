@@ -351,36 +351,13 @@ em { font-style: normal; }
 /* ── sections ── */
 .section { max-width: var(--wrap); margin: 0 auto; padding: 68px 24px; }
 
-/* narrative lead-in between the hero and the first visual */
-.intro {
-  max-width: 720px;
-  padding-top: 62px;
-  padding-bottom: 10px;
-  border-top: 1px solid var(--line);
-}
-.intro p {
-  margin: 0 0 18px;
-  color: var(--ink-2);
-  font-size: 17.5px;
-  line-height: 1.68;
-}
-.intro p:last-child { margin-bottom: 0; }
-.intro .lead-in {
-  font-size: clamp(21px, 2.4vw, 26px);
-  line-height: 1.42;
-  letter-spacing: -0.02em;
-  color: var(--ink);
-  font-weight: 500;
-  margin-bottom: 22px;
-}
-
 /* everyone pays for what they ate */
-.fair-wrap { padding-top: 58px; }
+.fair-wrap { border-top: 1px solid var(--line); }
 .fair {
   display: grid;
   grid-template-columns: 1fr 0.92fr;
   gap: 56px;
-  align-items: center;
+  align-items: start;
 }
 .fair h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 770; }
 .fair p { color: var(--ink-2); margin: 18px 0 0; font-size: 16.5px; line-height: 1.68; }
@@ -414,7 +391,7 @@ em { font-style: normal; }
   display: grid;
   grid-template-columns: 1fr 0.86fr;
   gap: 56px;
-  align-items: center;
+  align-items: start;
   border-top: 1px solid var(--line);
 }
 .share h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 770; }
@@ -509,13 +486,14 @@ em { font-style: normal; }
 .rcpt-foot { text-align: center; font-size: 9.5px; color: #8b8271; margin-top: 4px; }
 
 /* ── closer ── */
-.closer { text-align: center; padding-block: 72px 92px; border-top: 1px solid var(--line); }
-.closer h2 { font-size: clamp(27px, 3.9vw, 41px); font-weight: 780; }
+/* Left-aligned like everything else: one rail down the whole page. */
+.closer { padding-block: 72px 92px; border-top: 1px solid var(--line); }
+.closer h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 770; }
 .closer-copy {
-  max-width: 34em;
-  margin: 20px auto 30px;
+  max-width: 30em;
+  margin: 18px 0 30px;
   color: var(--ink-2);
-  font-size: 17px;
+  font-size: 16.5px;
   line-height: 1.68;
 }
 
@@ -541,8 +519,6 @@ em { font-style: normal; }
 @media (max-width: 700px) {
   .section { padding: 46px 20px; }
   .hero { padding: 22px 20px 44px; }
-  .intro { padding-top: 46px; }
-  .fair-wrap { padding-top: 44px; }
   .closer { padding-block: 52px 68px; }
   .chat { padding: 14px 12px 16px; }
   .foot-inner { padding: 22px 20px 8px; }
