@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Divvy gallery shot</title>
+    <link rel="stylesheet" href="/.gallery-tmp/frame.css" />
+  </head>
+  <body>
+    <div class="slide">
+      <div class="mark"><img src="/icon.svg" alt="" /><span>Divvy</span></div>
+      <div class="copy" id="copy"></div>
+      <div class="stage">
+        <div class="phone"><div class="screen" id="screen"></div></div>
+      </div>
+      <div class="url">divvyit.online</div>
+    </div>
+
+    <script>
+      /* ── The demo bill: Hotel Swastik, ₹1200 food + ₹71 tax = ₹1271.
+         billTotal is seeded to 1271 as well, so the app's own reconciliation
+         check really passes on screen instead of being faked. ── */
+      const MEMBERS = [
+        { id: "m1", name: "Nikhil", color: "#4f46e5" },
+        { id: "m2", name: "Priya", color: "#0ea5e9" },
+        { id: "m3", name: "Arjun", color: "#10b981" },
+      ];
+      const ITEMS = [
+        { id: "i1", name: "Paneer Butter Masala", price: 320, shares: { m1: 1, m3: 1 } },
+        { id: "i2", name: "Cheese Pakoda ×4", price: 240, shares: { m1: 2, m2: 1, m3: 1 } },
+        { id: "i3", name: "Butter Naan ×6", price: 180, shares: { m1: 1, m2: 1, m3: 1 } },
+        { id: "i4", name: "Veg Biryani", price: 260, shares: { m1: 1 } },
+        { id: "i5", name: "Masala Chai ×3", price: 90, shares: { m1: 1, m2: 1, m3: 1 } },
+        { id: "i6", name: "Gulab Jamun ×2", price: 110, shares: { m1: 1, m2: 1 } },
+      ];
+      const full = {
+        currency: "₹",
+        billName: "Hotel Swastik",
+        billDate: "2026-07-22",
+        billTotal: 1271,
+        members: MEMBERS,
+        items: ITEMS,
+        charges: { tax: 71, tip: "", service: "", discount: "" },
+      };
+      const noItems = {
+        ...full,
+        items: [],
+        billTotal: 0,
+        charges: { tax: "", tip: "", service: "", discount: "" },
+      };
+
+      const SHOTS = {
+        // ── 1. Add the people ──
+        people: {
+          state: noItems,
+          // Members present pushes the app to step 2, so click back to step 1
+          // to show the real "Who's splitting?" screen with names on it.
+          setup: (d) => d.querySelector('[data-step="1"]')?.click(),
+          scrollY: () => 0,
+          copy: `
+            <h1>Add everyone at <em>the table</em></h1>
+            <p class="lede">First names are enough. Nobody else has to install a thing.</p>`,
+        },
+
+        // ── 2. Add the bill ──
+        bill: {
+          state: noItems,
+          scrollY: () => 0,
+          copy: `
+            <h1>Add <em>the bill</em></h1>
+            <p class="lede">Photograph it, paste a screenshot, or type the dishes in by hand.</p>`,
+        },
+
+        // ── 3. Tag who had what ──
+        tag: {
+          state: full,
+          // Park the uneven-split dish (Nikhil ×2) on screen.
+          scrollY: (d) => {
+            const inp = [...d.querySelectorAll("input")].find((i) =>
+              (i.value || "").startsWith("Cheese Pakoda"),
+            );
+            if (!inp) return 0;
+            const row = inp.closest("li, .item, .row, div");
+            return row.getBoundingClientRect().top + d.defaultView.scrollY - 34;
+          },
+          copy: `
+            <h1>Tag <em>who had what</em></h1>
+            <p class="lede">Each dish splits only between the people who ordered it.</p>`,
+        },
+
+        // ── 4. Check the maths ──
+        check: {
+          state: full,
+          scrollY: (d) => {
+            const el = d.querySelector("#totals-card");
+            if (!el) return 0;
+            return el.getBoundingClientRect().top + d.defaultView.scrollY - 78;
+          },
+          copy: `
+            <h1>Check <em>the maths</em></h1>
+            <p class="lede">Divvy checks its own total against the one printed on the bill.</p>`,
+        },
+      };
+
+      const id = new URLSearchParams(location.search).get("id") || "people";
+      const shot = SHOTS[id];
+      document.getElementById("copy").innerHTML = shot.copy;
+
+      localStorage.setItem("divvy.v1", JSON.stringify(shot.state));
+
+      const ifr = document.createElement("iframe");
+      ifr.src = "/app/";
+      ifr.addEventListener("load", () => {
+        const d = ifr.contentDocument;
+        if (shot.setup) shot.setup(d);
+        // Re-query after setup: clicking a step re-renders the whole app.
+        requestAnimationFrame(() => {
+          ifr.contentWindow.scrollTo(0, Math.max(0, shot.scrollY(d) || 0));
+          d.documentElement.style.setProperty("scrollbar-width", "none");
+        });
+      });
+      document.getElementById("screen").appendChild(ifr);
+    </script>
+  </body>
+</html>

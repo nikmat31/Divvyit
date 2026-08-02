@@ -123,6 +123,15 @@ Then set the environment variable:
 | `GEMINI_API_KEY` | for AI scanning | Free key from [Google AI Studio](https://aistudio.google.com/apikey). Server-side only — it is never sent to the browser. |
 | `GEMINI_MODEL` | no | Defaults to `gemini-flash-latest`. Pin a specific version if you want stable behaviour. |
 | `ALLOWED_ORIGINS` | no | Comma-separated extra origins permitted to call the proxy. Same-origin always works. |
+| `UPSTASH_REDIS_REST_URL` | no | Enables rate limiting. Free database at [upstash.com](https://upstash.com). |
+| `UPSTASH_REDIS_REST_TOKEN` | no | Paired with the URL above. Without both, rate limiting is skipped entirely. |
+| `RATE_PER_IP_HOURLY` | no | Scans allowed per IP per hour. Default 15. |
+| `RATE_PER_DAY` | no | Global scans per day, protecting the provider quota. Default 500. |
+
+Rate limiting is checked after input validation but before the billable model
+call, so rejected requests cost nothing. If Redis is unreachable it fails open —
+a metering outage shouldn't take the product down. Limited clients get a 429 and
+the app quietly falls back to on-device OCR.
 
 HTTPS is required for the camera, clipboard and native share sheet — all the hosts
 above provide it.
