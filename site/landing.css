@@ -146,6 +146,22 @@ em { font-style: normal; }
 }
 .cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .microcopy { color: var(--muted); font-size: 13.5px; margin: 16px 0 0; }
+
+/* Product Hunt badge — sits below the CTA, clearly separated from it so it
+   reads as social proof rather than a second call to action. */
+.ph-badge {
+  display: inline-block;
+  margin-top: 28px;
+  line-height: 0;
+  border-radius: 10px;
+  transition: transform 0.15s var(--ease), opacity 0.2s var(--ease);
+}
+.ph-badge:hover { transform: translateY(-2px); }
+.ph-badge:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+}
+.ph-badge img { width: 250px; height: 54px; }
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; gap: 40px; padding-top: 28px; }
 }

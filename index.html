@@ -66,6 +66,29 @@
             <a class="btn btn-primary btn-lg" href="/app">Split a bill →</a>
           </div>
           <p class="microcopy">No login needed.</p>
+
+          <!-- Product Hunt badge. Served via <picture> so the dark variant is
+               used in dark mode — the light SVG glows white otherwise. -->
+          <a
+            class="ph-badge"
+            href="https://www.producthunt.com/products/divvy-8?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-divvy-10"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <picture>
+              <source
+                media="(prefers-color-scheme: dark)"
+                srcset="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1212945&amp;theme=dark"
+              />
+              <img
+                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1212945&amp;theme=light"
+                alt="Divvy - Scan the bill. Split it by who had what. | Product Hunt"
+                width="250"
+                height="54"
+                loading="lazy"
+              />
+            </picture>
+          </a>
         </div>
 
         <div class="hero-demo">
