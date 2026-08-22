@@ -7,13 +7,23 @@
 import { checkRateLimit } from "./_ratelimit.js";
 
 // Models are tried in order until one answers. A single model is a single point
-// of failure: the rolling "-latest" aliases track whichever preview build
-// Google is currently pushing, and that pool is the first thing throttled under
-// load — it answers "this model is currently experiencing high demand" often
-// enough that one-shot calls fail most of the time. Stable versions lead; the
-// alias stays on as a backstop for the day the pinned ones are retired.
+// of failure: the provider answers "this model is currently experiencing high
+// demand" often enough that one-shot calls fail most of the time, so overload
+// has to be survivable rather than fatal.
+//
+// Order matters more than it looks. Newer keys are only granted the rolling
+// aliases — a key that 404s on gemini-2.5-flash burns a doomed call at the head
+// of every single scan, which wastes latency AND triples the per-minute quota
+// spend. So the aliases lead and the pinned versions sit at the back as
+// backstops for keys that do have them. Check x-ai-attempts against a real
+// deployment before reordering: 1 means the head of the chain is right.
 // Override with GEMINI_MODEL, comma-separated to set your own chain.
-const DEFAULT_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+const DEFAULT_MODEL_CHAIN = [
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
 
 // A single attempt is capped so one slow model can't eat the whole budget; the
 // budget caps the handler as a whole, keeping us inside the platform's function
@@ -175,9 +185,13 @@ function classify(status, detail) {
   if (status === 404 || /no longer available|not found|not supported|does not exist/i.test(detail)) {
     return "next";
   }
-  // Google returns 429 both for "this key is out of quota" (hopeless) and for
-  // short-term pacing (worth another go).
-  if (status === 429) return /quota|exhausted|billing|per day/i.test(detail) ? "stop" : "retry";
+  // Google returns 429 for a per-minute rate limit and for a daily cap using
+  // the same prose ("you exceeded your current quota... check your plan and
+  // billing details"), so the message can't tell them apart — only the quota id
+  // can. A per-minute limit is metered per model, so the next model in the
+  // chain has its own allowance and is worth a try; a daily cap is terminal.
+  // An unlabelled 429 is assumed transient: giving up early is the worse error.
+  if (status === 429) return /per ?day|daily/i.test(detail) ? "stop" : "next";
   if (status >= 500 || /high demand|overload|unavailable|try again/i.test(detail)) return "retry";
   return "next";
 }
@@ -200,10 +214,19 @@ async function callModel({ apiKey, model, body, timeoutMs }) {
     const payload = await res.json().catch(() => null);
 
     if (!res.ok) {
+      const message = payload?.error?.message || `HTTP ${res.status}`;
+      // The quota id is the only thing that says whether a 429 is the
+      // per-minute ceiling or the daily one, and it lives in the details rather
+      // than the message. Carried along so classify() can tell them apart.
+      const quotaIds = (payload?.error?.details || [])
+        .flatMap((d) => d?.violations || [])
+        .map((v) => v?.quotaId || v?.quotaMetric || "")
+        .filter(Boolean)
+        .join(" ");
       return {
         ok: false,
         status: res.status,
-        detail: payload?.error?.message || `HTTP ${res.status}`,
+        detail: quotaIds ? `${message} [${quotaIds}]` : message,
       };
     }
 
@@ -348,7 +371,9 @@ export async function handleParseBill(request, env) {
     // Ordered by what the caller can do about it, most recent cause first.
     if (lastStatus === 429) {
       status = 429;
-      error = "The API key is out of quota for now — scans fall back to your device.";
+      error = /per ?day|daily/i.test(lastDetail)
+        ? "Today's scanning quota on the API key is used up. Scans fall back to your device until it resets."
+        : "Scans are being throttled — wait a few seconds and try again.";
     } else if (sawOverload) {
       status = 503;
       error = "The model provider is busy right now. Give it a few seconds and scan again.";
