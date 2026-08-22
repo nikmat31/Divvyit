@@ -6,11 +6,23 @@
 
 import { checkRateLimit } from "./_ratelimit.js";
 
-// Alias that always resolves to Google's current Flash model. Deliberately not
-// pinned: Google retires specific versions (gemini-2.5-flash stopped accepting
-// new API keys), which hard-breaks a pinned default. Pin a version via the
-// GEMINI_MODEL env var if you need byte-stable behaviour.
-const DEFAULT_MODEL = "gemini-flash-latest";
+// Models are tried in order until one answers. A single model is a single point
+// of failure: the rolling "-latest" aliases track whichever preview build
+// Google is currently pushing, and that pool is the first thing throttled under
+// load — it answers "this model is currently experiencing high demand" often
+// enough that one-shot calls fail most of the time. Stable versions lead; the
+// alias stays on as a backstop for the day the pinned ones are retired.
+// Override with GEMINI_MODEL, comma-separated to set your own chain.
+const DEFAULT_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+
+// A single attempt is capped so one slow model can't eat the whole budget; the
+// budget caps the handler as a whole, keeping us inside the platform's function
+// limit even after retries. Both are roomy once thinking is off (requestBody).
+const DEFAULT_ATTEMPT_MS = 9000;
+const DEFAULT_BUDGET_MS = 20000;
+const ATTEMPTS_PER_MODEL = 2;
+const MIN_ATTEMPT_MS = 2500; // no point starting an attempt we can't finish
+
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded; the client sends far less
 const ALLOWED_MIME = /^image\/(jpeg|png|webp|heic|heif)$/i;
 
@@ -112,6 +124,129 @@ function clean(raw) {
   };
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Ordered list of models to try for one request. */
+function modelChain(env) {
+  const pinned = String(env.GEMINI_MODEL || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [...new Set(pinned.length ? pinned : DEFAULT_MODEL_CHAIN)];
+}
+
+function requestBody(imageBase64, mimeType, useThinking) {
+  const generationConfig = {
+    temperature: 0, // deterministic extraction, not creative writing
+    responseMimeType: "application/json",
+    responseSchema: RESPONSE_SCHEMA,
+  };
+  // Reading a bill is transcription, not reasoning. On the thinking-enabled
+  // Flash builds the reasoning pass adds seconds per call for no accuracy gain
+  // here, and latency is precisely what used to push us past the function
+  // limit. Models that refuse the field are handled by the "no-thinking"
+  // outcome in the loop below.
+  if (!useThinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+
+  return JSON.stringify({
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: PROMPT },
+          { inline_data: { mime_type: mimeType, data: imageBase64 } },
+        ],
+      },
+    ],
+    generationConfig,
+  });
+}
+
+/**
+ * What to do about a failed attempt.
+ *   "retry"       transient — same model again
+ *   "next"        this model is unusable — move down the chain
+ *   "stop"        our request or our key is wrong — more attempts can't help
+ *   "no-thinking" the model rejected thinkingConfig — resend without it
+ */
+function classify(status, detail) {
+  if (status === 400 && /thinking/i.test(detail)) return "no-thinking";
+  if (status === 400 || status === 401 || status === 403) return "stop";
+  if (status === 404 || /no longer available|not found|not supported|does not exist/i.test(detail)) {
+    return "next";
+  }
+  // Google returns 429 both for "this key is out of quota" (hopeless) and for
+  // short-term pacing (worth another go).
+  if (status === 429) return /quota|exhausted|billing|per day/i.test(detail) ? "stop" : "retry";
+  if (status >= 500 || /high demand|overload|unavailable|try again/i.test(detail)) return "retry";
+  return "next";
+}
+
+/** One call to one model. Never throws; failures come back as data. */
+async function callModel({ apiKey, model, body, timeoutMs }) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model,
+  )}:generateContent`;
+
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      signal: abort.signal,
+      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+      body,
+    });
+    const payload = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        detail: payload?.error?.message || `HTTP ${res.status}`,
+      };
+    }
+
+    const text = payload?.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text || "")
+      .join("")
+      .trim();
+
+    if (!text) {
+      const reason =
+        payload?.promptFeedback?.blockReason ||
+        payload?.candidates?.[0]?.finishReason ||
+        "empty response";
+      // A refusal returns the same way every time, so treat it as terminal;
+      // an otherwise-empty candidate is usually a blip worth retrying.
+      const terminal = /safety|recitation|blocklist|prohibited/i.test(reason);
+      return {
+        ok: false,
+        status: terminal ? 400 : 502,
+        detail: `Model returned nothing (${reason}).`,
+      };
+    }
+
+    try {
+      return { ok: true, parsed: JSON.parse(text) };
+    } catch {
+      return { ok: false, status: 502, detail: "Model returned malformed JSON." };
+    }
+  } catch (e) {
+    const timedOut = e?.name === "AbortError";
+    return {
+      ok: false,
+      timedOut,
+      status: timedOut ? 504 : 502,
+      detail: timedOut
+        ? `No response within ${Math.round(timeoutMs / 1000)}s.`
+        : "Couldn't reach the model provider.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function handleParseBill(request, env) {
   const origin = pickOrigin(request, env);
 
@@ -189,107 +324,100 @@ export async function handleParseBill(request, env) {
     return withLimitHeaders(res);
   }
 
-  const model = env.GEMINI_MODEL || DEFAULT_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    model,
-  )}:generateContent`;
+  // Work down the chain, retrying each model while the whole thing stays inside
+  // the budget. Bounding it matters: if we run into the platform's own function
+  // limit it kills us mid-flight and the host's HTML error page goes back
+  // instead of our JSON, so the client waits the full limit before it can fall
+  // back to on-device OCR. Answering ourselves is always faster.
+  const chain = modelChain(env);
+  const attemptCap = Number(env.GEMINI_TIMEOUT_MS) || DEFAULT_ATTEMPT_MS;
+  const deadline = Date.now() + (Number(env.GEMINI_BUDGET_MS) || DEFAULT_BUDGET_MS);
 
-  // Bound the upstream call. Without this a slow Gemini response runs into the
-  // platform's own function limit, which kills us mid-flight and returns the
-  // host's HTML error page instead of our JSON — the client then waits the full
-  // limit before it can fall back to on-device OCR. Aborting first lets us
-  // answer quickly and cleanly.
-  const upstream = new AbortController();
-  const upstreamTimer = setTimeout(
-    () => upstream.abort(),
-    Number(env.GEMINI_TIMEOUT_MS) || 18000,
-  );
+  let useThinking = false; // off unless a model turns out to insist on it
+  let attempts = 0;
+  let lastStatus = 502;
+  let lastDetail = "Couldn't reach the model provider.";
+  let lastModel = chain[0];
+  let sawOverload = false;
 
-  let res;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      signal: upstream.signal,
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: PROMPT },
-              { inline_data: { mime_type: mimeType, data: imageBase64 } },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0, // deterministic extraction, not creative writing
-          responseMimeType: "application/json",
-          responseSchema: RESPONSE_SCHEMA,
-        },
-      }),
-    });
-  } catch (e) {
-    clearTimeout(upstreamTimer);
-    const timedOut = e?.name === "AbortError";
-    return withLimitHeaders(
-      json(
-        {
-          error: timedOut
-            ? "Reading the bill took too long. Trying again usually works."
-            : "Couldn't reach the model provider.",
-        },
-        timedOut ? 504 : 502,
-        origin,
-      ),
-    );
-  }
-  clearTimeout(upstreamTimer);
-
-  const payload = await res.json().catch(() => null);
-
-  if (!res.ok) {
-    const detail = payload?.error?.message || `HTTP ${res.status}`;
-    const status = res.status === 429 ? 429 : 502;
+  // The client shows this text and falls back to on-device OCR either way, so
+  // it should say what went wrong and whether trying again is worth it.
+  const failure = () => {
+    let status = lastStatus === 504 ? 504 : 502;
     let error;
-    if (res.status === 429) {
-      error = "Free-tier rate limit hit — wait a moment and try again.";
-    } else if (/no longer available|not found|not supported/i.test(detail)) {
+    // Ordered by what the caller can do about it, most recent cause first.
+    if (lastStatus === 429) {
+      status = 429;
+      error = "The API key is out of quota for now — scans fall back to your device.";
+    } else if (sawOverload) {
+      status = 503;
+      error = "The model provider is busy right now. Give it a few seconds and scan again.";
+    } else if (lastStatus === 504) {
+      error = "Reading the bill took too long. Trying again usually works.";
+    } else if (/no longer available|not found|not supported|does not exist/i.test(lastDetail)) {
       // Google retires model versions; make the fix obvious rather than cryptic.
-      error = `Model "${model}" isn't usable with this API key. Set the GEMINI_MODEL environment variable to a current model. (${detail})`;
+      error = `None of these models worked with this API key (${chain.join(
+        ", ",
+      )}). Set GEMINI_MODEL to one your key can use. (${lastDetail})`;
     } else {
-      error = `Model provider error: ${detail}`;
+      error = `Model provider error: ${lastDetail}`;
     }
-    return withLimitHeaders(json({ error }, status, origin));
+    const res = json({ error }, status, origin);
+    if (status === 503) res.headers.set("retry-after", "5");
+    res.headers.set("x-ai-model", lastModel);
+    res.headers.set("x-ai-attempts", String(attempts));
+    return withLimitHeaders(res);
+  };
+
+  for (const model of chain) {
+    let tries = 0;
+    while (tries < ATTEMPTS_PER_MODEL) {
+      const left = deadline - Date.now();
+      if (left < MIN_ATTEMPT_MS) return failure();
+
+      tries++;
+      attempts++;
+      lastModel = model;
+
+      const attempt = await callModel({
+        apiKey,
+        model,
+        body: requestBody(imageBase64, mimeType, useThinking),
+        timeoutMs: Math.min(attemptCap, left),
+      });
+
+      if (attempt.ok) {
+        const result = clean(attempt.parsed);
+        const res = result.items.length
+          ? json(result, 200, origin)
+          : json({ error: "No line items were readable in that image.", ...result }, 422, origin);
+        res.headers.set("x-ai-model", model);
+        res.headers.set("x-ai-attempts", String(attempts));
+        return withLimitHeaders(res);
+      }
+
+      lastStatus = attempt.status;
+      lastDetail = attempt.detail;
+
+      const verdict = classify(attempt.status, attempt.detail);
+      if (verdict === "stop") return failure();
+      if (verdict === "next") break;
+      if (verdict === "no-thinking" && !useThinking) {
+        // A config mismatch, not a real attempt — let this model think and give
+        // it its full allowance. Can only fire once, since the flag stays set.
+        useThinking = true;
+        tries--;
+        continue;
+      }
+      if (/high demand|overload|unavailable/i.test(attempt.detail) || attempt.status === 503) {
+        sawOverload = true;
+      }
+      // Transient: pause briefly so a demand spike has a moment to clear.
+      if (tries < ATTEMPTS_PER_MODEL) {
+        await sleep(Math.max(0, Math.min(500, deadline - Date.now() - MIN_ATTEMPT_MS)));
+      }
+    }
   }
 
-  const text = payload?.candidates?.[0]?.content?.parts
-    ?.map((p) => p.text || "")
-    .join("")
-    .trim();
-
-  if (!text) {
-    const reason =
-      payload?.promptFeedback?.blockReason ||
-      payload?.candidates?.[0]?.finishReason ||
-      "empty response";
-    return json({ error: `Model returned nothing (${reason}).` }, 502, origin);
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return json({ error: "Model returned malformed JSON." }, 502, origin);
-  }
-
-  const result = clean(parsed);
-  if (!result.items.length) {
-    return withLimitHeaders(
-      json({ error: "No line items were readable in that image.", ...result }, 422, origin),
-    );
-  }
-  return withLimitHeaders(json(result, 200, origin));
+  return failure();
 }
