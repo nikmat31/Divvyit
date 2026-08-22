@@ -185,13 +185,13 @@ function classify(status, detail) {
   if (status === 404 || /no longer available|not found|not supported|does not exist/i.test(detail)) {
     return "next";
   }
-  // Google returns 429 for a per-minute rate limit and for a daily cap using
-  // the same prose ("you exceeded your current quota... check your plan and
-  // billing details"), so the message can't tell them apart — only the quota id
-  // can. A per-minute limit is metered per model, so the next model in the
-  // chain has its own allowance and is worth a try; a daily cap is terminal.
-  // An unlabelled 429 is assumed transient: giving up early is the worse error.
-  if (status === 429) return /per ?day|daily/i.test(detail) ? "stop" : "next";
+  // Every 429 moves down the chain. Both ceilings the provider enforces — the
+  // per-minute one and the daily one — are metered per project AND per model
+  // (the quota ids read "...PerProjectPerModel"), so one model running out says
+  // nothing about the allowance left on the next. Stopping the whole chain on
+  // the first 429 stranded scans a second model would have served. Which
+  // ceiling was hit only changes the wording — see sawDailyCap.
+  if (status === 429) return "next";
   if (status >= 500 || /high demand|overload|unavailable|try again/i.test(detail)) return "retry";
   return "next";
 }
@@ -362,6 +362,7 @@ export async function handleParseBill(request, env) {
   let lastDetail = "Couldn't reach the model provider.";
   let lastModel = chain[0];
   let sawOverload = false;
+  let sawDailyCap = false;
 
   // The client shows this text and falls back to on-device OCR either way, so
   // it should say what went wrong and whether trying again is worth it.
@@ -369,11 +370,15 @@ export async function handleParseBill(request, env) {
     let status = lastStatus === 504 ? 504 : 502;
     let error;
     // Ordered by what the caller can do about it, most recent cause first.
-    if (lastStatus === 429) {
+    if (sawDailyCap) {
+      // Nothing a retry can fix today, so don't imply one will help. Named as
+      // the key's ceiling rather than the app's, since that is where the fix is.
       status = 429;
-      error = /per ?day|daily/i.test(lastDetail)
-        ? "Today's scanning quota on the API key is used up. Scans fall back to your device until it resets."
-        : "Scans are being throttled — wait a few seconds and try again.";
+      error =
+        "The API key's daily quota is used up. Scans fall back to your device until it resets.";
+    } else if (lastStatus === 429) {
+      status = 429;
+      error = "Scans are being throttled — wait a few seconds and try again.";
     } else if (sawOverload) {
       status = 503;
       error = "The model provider is busy right now. Give it a few seconds and scan again.";
@@ -424,6 +429,11 @@ export async function handleParseBill(request, env) {
       lastStatus = attempt.status;
       lastDetail = attempt.detail;
 
+      if (attempt.status === 429 && /per ?day|daily/i.test(attempt.detail)) sawDailyCap = true;
+      if (/high demand|overload|unavailable/i.test(attempt.detail) || attempt.status === 503) {
+        sawOverload = true;
+      }
+
       const verdict = classify(attempt.status, attempt.detail);
       if (verdict === "stop") return failure();
       if (verdict === "next") break;
@@ -433,9 +443,6 @@ export async function handleParseBill(request, env) {
         useThinking = true;
         tries--;
         continue;
-      }
-      if (/high demand|overload|unavailable/i.test(attempt.detail) || attempt.status === 503) {
-        sawOverload = true;
       }
       // Transient: pause briefly so a demand spike has a moment to clear.
       if (tries < ATTEMPTS_PER_MODEL) {
