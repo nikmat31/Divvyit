@@ -270,6 +270,35 @@ async function callModel({ apiKey, model, body, timeoutMs }) {
   }
 }
 
+// GET /api/parse-bill?models — which models this deployment's key can call
+// generateContent on, straight from the provider. Guessing this from attempt
+// counts is how the chain ended up led by models the key had never had. Model
+// ids only; the key never appears in the response. Cached so repeated hits
+// can't turn into a stream of upstream calls.
+let modelsCache = null;
+async function listModels(apiKey) {
+  if (modelsCache && Date.now() - modelsCache.at < 10 * 60 * 1000) return modelsCache.body;
+  try {
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+      { headers: { "x-goog-api-key": apiKey } },
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok) return { error: data?.error?.message || `HTTP ${res.status}` };
+    const body = {
+      chain: DEFAULT_MODEL_CHAIN,
+      models: (data?.models || [])
+        .filter((m) => (m.supportedGenerationMethods || []).includes("generateContent"))
+        .map((m) => String(m.name || "").replace(/^models\//, ""))
+        .sort(),
+    };
+    modelsCache = { at: Date.now(), body };
+    return body;
+  } catch (e) {
+    return { error: String(e?.message || e) };
+  }
+}
+
 export async function handleParseBill(request, env) {
   const origin = pickOrigin(request, env);
 
@@ -286,7 +315,9 @@ export async function handleParseBill(request, env) {
         : {},
     });
   }
-  if (request.method !== "POST") {
+  const wantsModels =
+    request.method === "GET" && new URL(request.url).searchParams.has("models");
+  if (request.method !== "POST" && !wantsModels) {
     return json({ error: "Use POST." }, 405, origin);
   }
 
@@ -298,6 +329,8 @@ export async function handleParseBill(request, env) {
       origin,
     );
   }
+
+  if (wantsModels) return json(await listModels(apiKey), 200, origin);
 
   let body;
   try {
@@ -363,6 +396,11 @@ export async function handleParseBill(request, env) {
   let lastModel = chain[0];
   let sawOverload = false;
   let sawDailyCap = false;
+  // One entry per upstream call. Without it a failure only shows its final
+  // summary, and one flag can mask what the other models actually said.
+  const trace = [];
+  const traceHeader = () =>
+    trace.map((t) => `${t.model}:${t.status}:${t.ms}ms`).join(", ");
 
   // The client shows this text and falls back to on-device OCR either way, so
   // it should say what went wrong and whether trying again is worth it.
@@ -392,8 +430,9 @@ export async function handleParseBill(request, env) {
     } else {
       error = `Model provider error: ${lastDetail}`;
     }
-    const res = json({ error }, status, origin);
+    const res = json({ error, trace }, status, origin);
     if (status === 503) res.headers.set("retry-after", "5");
+    res.headers.set("x-ai-trace", traceHeader());
     res.headers.set("x-ai-model", lastModel);
     res.headers.set("x-ai-attempts", String(attempts));
     return withLimitHeaders(res);
@@ -409,6 +448,7 @@ export async function handleParseBill(request, env) {
       attempts++;
       lastModel = model;
 
+      const startedAt = Date.now();
       const attempt = await callModel({
         apiKey,
         model,
@@ -421,11 +461,20 @@ export async function handleParseBill(request, env) {
         const res = result.items.length
           ? json(result, 200, origin)
           : json({ error: "No line items were readable in that image.", ...result }, 422, origin);
+        trace.push({ model, status: 200, ms: Date.now() - startedAt });
         res.headers.set("x-ai-model", model);
         res.headers.set("x-ai-attempts", String(attempts));
+        res.headers.set("x-ai-trace", traceHeader());
         return withLimitHeaders(res);
       }
 
+      trace.push({
+        model,
+        status: attempt.status,
+        ms: Date.now() - startedAt,
+        // Provider messages name the model and the reason, never the key.
+        detail: String(attempt.detail).slice(0, 240),
+      });
       lastStatus = attempt.status;
       lastDetail = attempt.detail;
 
