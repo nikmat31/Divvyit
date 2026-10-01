@@ -181,7 +181,14 @@ function requestBody(imageBase64, mimeType, useThinking) {
  */
 function classify(status, detail) {
   if (status === 400 && /thinking/i.test(detail)) return "no-thinking";
-  if (status === 400 || status === 401 || status === 403) return "stop";
+  // Only two 4xx causes are the same on every model: a bad key, and a content
+  // block on this image. Anything else is one model refusing something about
+  // our request — a parameter, the schema, access for this key — and the next
+  // model may well accept it. Stopping there used to strand scans with most of
+  // the budget unspent.
+  if (status === 401 || /api.?key|credential/i.test(detail)) return "stop";
+  if (/returned nothing/i.test(detail) && status === 400) return "stop";
+  if (status === 400 || status === 403) return "next";
   if (status === 404 || /no longer available|not found|not supported|does not exist/i.test(detail)) {
     return "next";
   }
