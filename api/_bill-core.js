@@ -11,18 +11,26 @@ import { checkRateLimit } from "./_ratelimit.js";
 // demand" often enough that one-shot calls fail most of the time, so overload
 // has to be survivable rather than fatal.
 //
-// Order matters more than it looks. Newer keys are only granted the rolling
-// aliases — a key that 404s on gemini-2.5-flash burns a doomed call at the head
-// of every single scan, which wastes latency AND triples the per-minute quota
-// spend. So the aliases lead and the pinned versions sit at the back as
-// backstops for keys that do have them. Check x-ai-attempts against a real
-// deployment before reordering: 1 means the head of the chain is right.
-// Override with GEMINI_MODEL, comma-separated to set your own chain.
+// Order comes from measurement, not inference (2026-10-01, this key):
+//   gemini-3.8-flash, 3.7-flash, flash-latest  503 "high demand", repeatedly
+//   gemini-3.6-flash                           200 in ~1.2–2.3s, correct twice
+//   gemini-3.5-flash                           200 in ~2.3s, correct
+//   gemini-3.1-flash-lite                      200 after one 503
+//   gemini-2.5-flash, 2.5-flash-lite, 2.0      404 "no longer available"
+// The newest model is where every free-tier caller piles in, so leading with
+// it — directly or through the -latest alias — is what kept failing. One
+// release back has the same accuracy on bills and spare capacity. The aliases
+// stay at the back so the chain still has a working tail when these pinned
+// versions are eventually retired.
+//
+// GET /api/parse-bill?models lists what the deployed key can call; check it
+// and x-ai-trace before reordering. GEMINI_MODEL (comma-separated) overrides.
 const DEFAULT_MODEL_CHAIN = [
-  "gemini-flash-latest",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
   "gemini-flash-lite-latest",
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
+  "gemini-flash-latest",
 ];
 
 // A single attempt is capped so one slow model can't eat the whole budget; the
@@ -145,7 +153,7 @@ function modelChain(env) {
   return [...new Set(pinned.length ? pinned : DEFAULT_MODEL_CHAIN)];
 }
 
-function requestBody(imageBase64, mimeType, useThinking, diagThinking) {
+function requestBody(imageBase64, mimeType, sendThinkingConfig) {
   const generationConfig = {
     temperature: 0, // deterministic extraction, not creative writing
     responseMimeType: "application/json",
@@ -156,12 +164,7 @@ function requestBody(imageBase64, mimeType, useThinking, diagThinking) {
   // here, and latency is precisely what used to push us past the function
   // limit. Models that refuse the field are handled by the "no-thinking"
   // outcome in the loop below.
-  if (!useThinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-  if (diagThinking === "off") delete generationConfig.thinkingConfig;
-  if (diagThinking === "budget0") generationConfig.thinkingConfig = { thinkingBudget: 0 };
-  if (diagThinking === "minimal" || diagThinking === "low") {
-    generationConfig.thinkingConfig = { thinkingLevel: diagThinking };
-  }
+  if (sendThinkingConfig) generationConfig.thinkingConfig = { thinkingBudget: 0 };
 
   return JSON.stringify({
     contents: [
@@ -185,7 +188,12 @@ function requestBody(imageBase64, mimeType, useThinking, diagThinking) {
  *   "no-thinking" the model rejected thinkingConfig — resend without it
  */
 function classify(status, detail) {
-  if (status === 400 && /thinking/i.test(detail)) return "no-thinking";
+  // The lite models reject thinkingBudget with a bare "Request contains an
+  // invalid argument." that never mentions thinking, so matching only on the
+  // word missed exactly the models that needed the fallback. The driver tries
+  // this once per model, so a generic 400 that isn't about thinking just costs
+  // one quick call before moving on.
+  if (status === 400 && /thinking|invalid argument/i.test(detail)) return "no-thinking";
   // Only two 4xx causes are the same on every model: a bad key, and a content
   // block on this image. Anything else is one model refusing something about
   // our request — a parameter, the schema, access for this key — and the next
@@ -397,17 +405,14 @@ export async function handleParseBill(request, env) {
   // limit it kills us mid-flight and the host's HTML error page goes back
   // instead of our JSON, so the client waits the full limit before it can fall
   // back to on-device OCR. Answering ourselves is always faster.
-  // TEMPORARY, preview deployments only (they sit behind Vercel login):
-  // ?model=<id>&thinking=budget0|minimal|low|off to measure candidates one at a
-  // time. Production never reads these params.
-  const diagParams = env.VERCEL_ENV === "preview" ? new URL(request.url).searchParams : null;
-  const diagModel = diagParams?.get("model");
-  const diagThinking = diagParams?.get("thinking");
-  const chain = diagModel ? [diagModel] : modelChain(env);
+  const chain = modelChain(env);
   const attemptCap = Number(env.GEMINI_TIMEOUT_MS) || DEFAULT_ATTEMPT_MS;
   const deadline = Date.now() + (Number(env.GEMINI_BUDGET_MS) || DEFAULT_BUDGET_MS);
 
-  let useThinking = false; // off unless a model turns out to insist on it
+  // Models that rejected thinkingConfig. Per model, because one refusing it
+  // says nothing about the next — a global flag let one lite model switch
+  // thinking back on, slowly, for every model after it.
+  const rejectsThinkingConfig = new Set();
   let attempts = 0;
   let lastStatus = 502;
   let lastDetail = "Couldn't reach the model provider.";
@@ -470,7 +475,7 @@ export async function handleParseBill(request, env) {
       const attempt = await callModel({
         apiKey,
         model,
-        body: requestBody(imageBase64, mimeType, useThinking, diagThinking),
+        body: requestBody(imageBase64, mimeType, !rejectsThinkingConfig.has(model)),
         timeoutMs: Math.min(attemptCap, left),
       });
 
@@ -504,10 +509,12 @@ export async function handleParseBill(request, env) {
       const verdict = classify(attempt.status, attempt.detail);
       if (verdict === "stop") return failure();
       if (verdict === "next") break;
-      if (verdict === "no-thinking" && !useThinking) {
-        // A config mismatch, not a real attempt — let this model think and give
-        // it its full allowance. Can only fire once, since the flag stays set.
-        useThinking = true;
+      if (verdict === "no-thinking") {
+        // Second refusal without the field: the 400 was about something else.
+        if (rejectsThinkingConfig.has(model)) break;
+        // A config mismatch, not a real attempt — resend without the field and
+        // give the model its full allowance.
+        rejectsThinkingConfig.add(model);
         tries--;
         continue;
       }

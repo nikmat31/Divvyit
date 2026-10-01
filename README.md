@@ -125,7 +125,7 @@ Then set the environment variable:
 | Variable | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | for AI scanning | Free key from [Google AI Studio](https://aistudio.google.com/apikey). Server-side only — it is never sent to the browser. |
-| `GEMINI_MODEL` | no | Comma-separated chain, tried in order. Defaults to `gemini-2.5-flash, gemini-2.0-flash, gemini-flash-latest`. Prefer leaving this unset — a single pinned model has no fallback when the provider is overloaded. |
+| `GEMINI_MODEL` | no | Comma-separated chain, tried in order. Defaults to `gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-flash-lite, gemini-flash-lite-latest, gemini-flash-latest`. Prefer leaving this unset — a single pinned model has no fallback when the provider is overloaded. Check `GET /api/parse-bill?models` before changing it. |
 | `GEMINI_TIMEOUT_MS` | no | Cap on one attempt. Default 9000. |
 | `GEMINI_BUDGET_MS` | no | Cap on the whole request, retries included. Default 20000 — keep it under your host's function limit. |
 | `ALLOWED_ORIGINS` | no | Comma-separated extra origins permitted to call the proxy. Same-origin always works. |
@@ -139,9 +139,16 @@ call, so rejected requests cost nothing. If Redis is unreachable it fails open �
 a metering outage shouldn't take the product down. Limited clients get a 429 and
 the app quietly falls back to on-device OCR.
 
-Every response carries `x-ai-model` and `x-ai-attempts`, so a single `curl -i`
-against `/api/parse-bill` tells you which model answered and how many tries it
-took — the fastest way to tell a provider problem apart from an app problem.
+Every response carries `x-ai-model`, `x-ai-attempts` and `x-ai-trace` — one
+`model:status:ms` entry per upstream call — so a single `curl -i` against
+`/api/parse-bill` tells you which models were tried, what each one answered and
+how long it took. Failed scans also return the provider's own message for each
+attempt in a `trace` field. That is the fastest way to tell a provider problem
+apart from an app problem.
+
+`GET /api/parse-bill?models` lists the models your deployed key can actually
+call (names only, cached for ten minutes). Google retires models for new keys
+without notice, so check it before reordering the chain.
 
 HTTPS is required for the camera, clipboard and native share sheet — all the hosts
 above provide it.
