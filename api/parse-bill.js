@@ -14,6 +14,7 @@ export default async function handler(request) {
     GEMINI_MODEL: process.env.GEMINI_MODEL,
     ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
     // Optional — rate limiting is skipped entirely when these are absent.
+    VERCEL_ENV: process.env.VERCEL_ENV, // TEMPORARY: gates preview-only diag params
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     RATE_PER_IP_HOURLY: process.env.RATE_PER_IP_HOURLY,

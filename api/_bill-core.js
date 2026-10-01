@@ -145,7 +145,7 @@ function modelChain(env) {
   return [...new Set(pinned.length ? pinned : DEFAULT_MODEL_CHAIN)];
 }
 
-function requestBody(imageBase64, mimeType, useThinking) {
+function requestBody(imageBase64, mimeType, useThinking, diagThinking) {
   const generationConfig = {
     temperature: 0, // deterministic extraction, not creative writing
     responseMimeType: "application/json",
@@ -157,6 +157,11 @@ function requestBody(imageBase64, mimeType, useThinking) {
   // limit. Models that refuse the field are handled by the "no-thinking"
   // outcome in the loop below.
   if (!useThinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  if (diagThinking === "off") delete generationConfig.thinkingConfig;
+  if (diagThinking === "budget0") generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  if (diagThinking === "minimal" || diagThinking === "low") {
+    generationConfig.thinkingConfig = { thinkingLevel: diagThinking };
+  }
 
   return JSON.stringify({
     contents: [
@@ -392,7 +397,13 @@ export async function handleParseBill(request, env) {
   // limit it kills us mid-flight and the host's HTML error page goes back
   // instead of our JSON, so the client waits the full limit before it can fall
   // back to on-device OCR. Answering ourselves is always faster.
-  const chain = modelChain(env);
+  // TEMPORARY, preview deployments only (they sit behind Vercel login):
+  // ?model=<id>&thinking=budget0|minimal|low|off to measure candidates one at a
+  // time. Production never reads these params.
+  const diagParams = env.VERCEL_ENV === "preview" ? new URL(request.url).searchParams : null;
+  const diagModel = diagParams?.get("model");
+  const diagThinking = diagParams?.get("thinking");
+  const chain = diagModel ? [diagModel] : modelChain(env);
   const attemptCap = Number(env.GEMINI_TIMEOUT_MS) || DEFAULT_ATTEMPT_MS;
   const deadline = Date.now() + (Number(env.GEMINI_BUDGET_MS) || DEFAULT_BUDGET_MS);
 
@@ -459,7 +470,7 @@ export async function handleParseBill(request, env) {
       const attempt = await callModel({
         apiKey,
         model,
-        body: requestBody(imageBase64, mimeType, useThinking),
+        body: requestBody(imageBase64, mimeType, useThinking, diagThinking),
         timeoutMs: Math.min(attemptCap, left),
       });
 
