@@ -126,12 +126,12 @@ Then set the environment variable:
 |---|---|---|
 | `GEMINI_API_KEY` | for AI scanning | Free key from [Google AI Studio](https://aistudio.google.com/apikey). Server-side only — it is never sent to the browser. |
 | `GEMINI_MODEL` | no | Comma-separated chain, tried in order. Defaults to `gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-flash-lite, gemini-flash-lite-latest, gemini-flash-latest`. Prefer leaving this unset — a single pinned model has no fallback when the provider is overloaded. Check `GET /api/parse-bill?models` before changing it. |
-| `GEMINI_TIMEOUT_MS` | no | Cap on one attempt. Default 9000. |
+| `GEMINI_TIMEOUT_MS` | no | Cap on one attempt. Default 7000. A model that stalls is handed off to the next one rather than retried. |
 | `GEMINI_BUDGET_MS` | no | Cap on the whole request, retries included. Default 20000 — keep it under your host's function limit. |
 | `ALLOWED_ORIGINS` | no | Comma-separated extra origins permitted to call the proxy. Same-origin always works. |
 | `UPSTASH_REDIS_REST_URL` | no | Enables rate limiting. Free database at [upstash.com](https://upstash.com). |
 | `UPSTASH_REDIS_REST_TOKEN` | no | Paired with the URL above. Without both, rate limiting is skipped entirely. |
-| `RATE_PER_IP_HOURLY` | no | Scans allowed per IP per hour. Default 15. |
+| `RATE_PER_IP_HOURLY` | no | Scans allowed per IP per hour. Default 30 — mobile carriers put many users behind one public IP, so this is per network, not per person. |
 | `RATE_PER_DAY` | no | Global scans per day, protecting the provider quota. Default 500. |
 
 Rate limiting is checked after input validation but before the billable model
@@ -145,6 +145,14 @@ Every response carries `x-ai-model`, `x-ai-attempts` and `x-ai-trace` — one
 how long it took. Failed scans also return the provider's own message for each
 attempt in a `trace` field. That is the fastest way to tell a provider problem
 apart from an app problem.
+
+When a model is overloaded, rate limited, out of daily quota or retired, the
+proxy records a cooldown (in the same Upstash, plus in memory) and every scan
+after it tries that model last instead of first — so only the scan that found
+the problem pays for it. Cooldowns last 60s for overload and rate limits, until
+midnight Pacific for a daily quota, and 6h for a retired model. A cooling model
+is moved to the back, never removed, so a stale cooldown can't block scanning.
+The `x-ai-cooling` header lists what was deprioritised for that request.
 
 `GET /api/parse-bill?models` lists the models your deployed key can actually
 call (names only, cached for ten minutes). Google retires models for new keys

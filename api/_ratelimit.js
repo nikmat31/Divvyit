@@ -13,11 +13,11 @@
 // a metering outage shouldn't take the product down, and the worst case is
 // quota exhaustion, which degrades to on-device OCR rather than failing.
 
-const DEFAULT_PER_IP_HOURLY = 15;
+const DEFAULT_PER_IP_HOURLY = 30; // per public IP — mobile carriers put many users behind one
 const DEFAULT_PER_DAY = 500;
 const TIMEOUT_MS = 1500; // never let metering add real latency
 
-function configured(env) {
+export function configured(env) {
   return Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN);
 }
 
@@ -46,7 +46,7 @@ function hourKey() {
  * One round trip: INCR both counters and set their TTLs.
  * Upstash's pipeline endpoint returns results in order.
  */
-async function pipeline(env, commands) {
+export async function pipeline(env, commands) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {

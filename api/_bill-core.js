@@ -5,6 +5,7 @@
 // The API key NEVER reaches the browser — it lives in the platform's env vars.
 
 import { checkRateLimit } from "./_ratelimit.js";
+import { coolingModels, cooldownFor, updateCooldowns } from "./_cooldown.js";
 
 // Models are tried in order until one answers. A single model is a single point
 // of failure: the provider answers "this model is currently experiencing high
@@ -35,8 +36,10 @@ const DEFAULT_MODEL_CHAIN = [
 
 // A single attempt is capped so one slow model can't eat the whole budget; the
 // budget caps the handler as a whole, keeping us inside the platform's function
-// limit even after retries. Both are roomy once thinking is off (requestBody).
-const DEFAULT_ATTEMPT_MS = 9000;
+// limit even after retries. Healthy answers measured 1.1–3.0s, and stalls are
+// all-or-nothing rather than slow-but-arriving, so 7s cuts a stall short with
+// room to spare for a dense bill. 20s fits three stalled models and a fourth try.
+const DEFAULT_ATTEMPT_MS = 7000;
 const DEFAULT_BUDGET_MS = 20000;
 const ATTEMPTS_PER_MODEL = 2;
 const MIN_ATTEMPT_MS = 2500; // no point starting an attempt we can't finish
@@ -212,6 +215,9 @@ function classify(status, detail) {
   // the first 429 stranded scans a second model would have served. Which
   // ceiling was hit only changes the wording — see sawDailyCap.
   if (status === 429) return "next";
+  // A stalled model rarely answers on the very next try, and waiting on it
+  // twice used to consume the whole budget before any other model was asked.
+  if (status === 504) return "next";
   if (status >= 500 || /high demand|overload|unavailable|try again/i.test(detail)) return "retry";
   return "next";
 }
@@ -405,7 +411,26 @@ export async function handleParseBill(request, env) {
   // limit it kills us mid-flight and the host's HTML error page goes back
   // instead of our JSON, so the client waits the full limit before it can fall
   // back to on-device OCR. Answering ourselves is always faster.
-  const chain = modelChain(env);
+  // Models another scan just found overloaded, capped or retired go to the
+  // back, so only the scan that discovered the problem pays for it.
+  const configuredChain = modelChain(env);
+  const cooling = await coolingModels(env, configuredChain);
+  const chain = [
+    ...configuredChain.filter((m) => !cooling.has(m)),
+    ...configuredChain.filter((m) => cooling.has(m)),
+  ];
+  const pendingCooldowns = [];
+  const recovered = [];
+  const finish = async (res) => {
+    await updateCooldowns(env, { set: pendingCooldowns, clear: recovered });
+    if (cooling.size) {
+      res.headers.set(
+        "x-ai-cooling",
+        [...cooling].map(([m, why]) => `${m}=${why}`).join(", "),
+      );
+    }
+    return withLimitHeaders(res);
+  };
   const attemptCap = Number(env.GEMINI_TIMEOUT_MS) || DEFAULT_ATTEMPT_MS;
   const deadline = Date.now() + (Number(env.GEMINI_BUDGET_MS) || DEFAULT_BUDGET_MS);
 
@@ -427,7 +452,7 @@ export async function handleParseBill(request, env) {
 
   // The client shows this text and falls back to on-device OCR either way, so
   // it should say what went wrong and whether trying again is worth it.
-  const failure = () => {
+  const failure = async () => {
     let status = lastStatus === 504 ? 504 : 502;
     let error;
     // Ordered by what the caller can do about it, most recent cause first.
@@ -458,7 +483,7 @@ export async function handleParseBill(request, env) {
     res.headers.set("x-ai-trace", traceHeader());
     res.headers.set("x-ai-model", lastModel);
     res.headers.set("x-ai-attempts", String(attempts));
-    return withLimitHeaders(res);
+    return finish(res);
   };
 
   for (const model of chain) {
@@ -488,7 +513,8 @@ export async function handleParseBill(request, env) {
         res.headers.set("x-ai-model", model);
         res.headers.set("x-ai-attempts", String(attempts));
         res.headers.set("x-ai-trace", traceHeader());
-        return withLimitHeaders(res);
+        if (cooling.has(model)) recovered.push(model);
+        return finish(res);
       }
 
       trace.push({
@@ -523,6 +549,9 @@ export async function handleParseBill(request, env) {
         await sleep(Math.max(0, Math.min(500, deadline - Date.now() - MIN_ATTEMPT_MS)));
       }
     }
+    // Reaching here means this model was given up on — say so for the next scan.
+    const cool = cooldownFor(lastStatus, lastDetail);
+    if (cool) pendingCooldowns.push({ model, ...cool });
   }
 
   return failure();
